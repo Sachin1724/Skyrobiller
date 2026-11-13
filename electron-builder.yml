@@ -1,0 +1,25 @@
+appId: com.skyrobiller.app
+productName: Skyro Biller
+copyright: Copyright © 2026 Skyro Biller Team
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist
+  - dist-electron
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Skyro Biller
