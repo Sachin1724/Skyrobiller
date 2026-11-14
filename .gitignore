@@ -43,3 +43,5 @@ Thumbs.db
 # Reference repositories (external clones)
 references/
 
+# Office lock files
+~$*

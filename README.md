@@ -37,6 +37,7 @@ It runs on one computer and keeps everything in a local database. No account, no
 | **Credit notes and payments** | Part payments, overdue marking, credit notes in their own number series. |
 | **13 invoice templates** | Accent colour, three text sizes, logo, signature, UPI scan-to-pay QR, Original / Duplicate / Triplicate copies. |
 | **GST filing sheets** | GSTR-1 style B2B, B2C, HSN and credit note sheets. One click exports every report as an Excel workbook. |
+| **First-run tutorial** | A guided tour of every screen and menu starts on first launch. Replay it any time from Help > Start Tutorial. |
 | **A proper Windows program** | Menu bar, keyboard shortcuts, light and dark theme, built-in help, installer. |
 
 ## Screenshots

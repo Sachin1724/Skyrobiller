@@ -46,13 +46,14 @@ export const Sidebar: React.FC = () => {
           <img src={logo} alt={tradeName} width={160} height={48} className="h-12 w-full object-contain object-left" />
         </div>
       )}
-      <nav aria-label="Modules" className="p-2.5 space-y-0.5">
+      <nav aria-label="Modules" data-tour="sidebar-nav" className="p-2.5 space-y-0.5">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentModule === item.id;
           return (
             <button
               key={item.id}
+              data-tour={`nav-${item.id}`}
               onClick={() => setCurrentModule(item.id)}
               aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-2.5 h-8 px-2.5 rounded-lg text-[13px] transition-colors ${

@@ -4,7 +4,8 @@ import { HeaderBar } from './components/layout/HeaderBar';
 import { ParkedInvoicesDrawer } from './components/layout/ParkedInvoicesDrawer';
 import { useNavStore, runFlushOpenWork, type AppModule } from './store/useNavStore';
 import { useSystemStore } from './store/useSystemStore';
-import { newDraftId } from './lib/db';
+import { newDraftId, getSetting } from './lib/db';
+import { Tour } from './components/Tour';
 
 // Views
 import { DashboardView } from './features/dashboard/DashboardView';
@@ -30,7 +31,7 @@ const COMMAND_SCREEN: Record<string, AppModule> = {
 const DOCUMENT_COMMANDS = ['save', 'save-copy', 'save-pdf', 'print'];
 
 export const App: React.FC = () => {
-  const { currentModule } = useNavStore();
+  const { currentModule, tourOpen } = useNavStore();
   const { setIsOnline, setDeviceInfo, loadCompany, loadPrefs, updatePrefs, prefs } = useSystemStore();
   const [toast, setToast] = useState('');
 
@@ -44,7 +45,11 @@ export const App: React.FC = () => {
 
     loadCompany().catch((err) => console.warn('Failed to load company profile:', err));
     loadPrefs()
-      .then((saved) => useNavStore.getState().setCurrentModule(saved.startScreen))
+      .then((saved) => {
+        useNavStore.getState().setCurrentModule(saved.startScreen);
+        // First run: show the tutorial once
+        return getSetting<boolean>('tourDone').then((done) => { if (!done) useNavStore.getState().setTourOpen(true); });
+      })
       .catch((err) => console.warn('Failed to load preferences:', err));
 
     // 2. Fetch hardware fingerprint and device info via Electron IPC
@@ -89,6 +94,8 @@ export const App: React.FC = () => {
       } else if (action === 'new-invoice') {
         nav.setActiveInvoiceDraftId(newDraftId('invoice'));
         nav.setCurrentModule('invoices');
+      } else if (action === 'tour') {
+        nav.setTourOpen(true);
       } else if (action === 'parked') {
         nav.toggleParkedDrawer();
       } else if (action === 'find') {
@@ -149,6 +156,8 @@ export const App: React.FC = () => {
         <HeaderBar />
         {renderModuleView()}
       </main>
+
+      {tourOpen && <Tour />}
 
       {/* Parked Invoices Drawer Overlay */}
       <ParkedInvoicesDrawer />

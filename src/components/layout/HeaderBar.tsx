@@ -33,7 +33,7 @@ export const HeaderBar: React.FC = () => {
     <header className="toolbar h-14 px-6 flex items-center justify-between">
       <h1 className="text-xl font-semibold tracking-tight">{moduleTitles[currentModule]}</h1>
 
-      <div className="flex items-center gap-2">
+      <div data-tour="header-actions" className="flex items-center gap-2">
         <button onClick={toggleParkedDrawer} className="btn">
           <PauseCircle className="h-4 w-4" aria-hidden />
           <span>Parked</span>

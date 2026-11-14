@@ -75,6 +75,7 @@ export function buildMenu({ send, checkForUpdates, openDataFolder, about }: Menu
       submenu: [
         item('Skyro Biller Help', 'nav:help', 'F1'),
         item('Keyboard Shortcuts', 'shortcuts'),
+        item('Start Tutorial…', 'tour'),
         separator,
         { label: 'Check for Updates…', click: checkForUpdates },
         { label: 'Open Data Folder', click: openDataFolder },

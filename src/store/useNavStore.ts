@@ -18,11 +18,13 @@ interface NavState {
   activeInvoiceDraftId: string | null;
   // A menu-bar command waiting for the screen that can carry it out. A new object each time, so repeats re-trigger.
   menuAction: { name: string } | null;
+  tourOpen: boolean;
   setCurrentModule: (mod: AppModule) => void;
   toggleParkedDrawer: () => void;
   setParkedDrawerOpen: (open: boolean) => void;
   setActiveInvoiceDraftId: (id: string | null) => void;
   dispatchMenu: (name: string) => void;
+  setTourOpen: (open: boolean) => void;
 }
 
 export const useNavStore = create<NavState>((set) => ({
@@ -30,11 +32,13 @@ export const useNavStore = create<NavState>((set) => ({
   isParkedDrawerOpen: false,
   activeInvoiceDraftId: null,
   menuAction: null,
+  tourOpen: false,
   setCurrentModule: (mod) => set({ currentModule: mod }),
   toggleParkedDrawer: () => set((state) => ({ isParkedDrawerOpen: !state.isParkedDrawerOpen })),
   setParkedDrawerOpen: (open) => set({ isParkedDrawerOpen: open }),
   setActiveInvoiceDraftId: (id) => set({ activeInvoiceDraftId: id }),
   dispatchMenu: (name) => set({ menuAction: { name } }),
+  setTourOpen: (open) => set({ tourOpen: open }),
 }));
 
 // Lets a screen carry out menu-bar commands. A handler that returns false passes: the command stays for another screen.

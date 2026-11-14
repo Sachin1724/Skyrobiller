@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { useMenuAction } from '../../store/useNavStore';
+import { useMenuAction, useNavStore } from '../../store/useNavStore';
+import { SCREENS, MENUS } from '../../lib/guide';
 
 const TOPICS: { title: string; steps: string[] }[] = [
   {
@@ -104,11 +105,14 @@ export const HelpView: React.FC = () => {
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const has = (text: string) => words.every((w) => text.toLowerCase().includes(w));
+  const screens = SCREENS.filter((sc) => has(`${sc.name} ${sc.what} ${sc.points.join(' ')}`));
+  const menus = MENUS.filter((m) => has(`${m.menu} ${m.items.flat().join(' ')}`));
   const topics = TOPICS.filter((t) => has(`${t.title} ${t.steps.join(' ')}`));
   const keys = SHORTCUTS.filter(([k, what]) => has(`${k} ${what}`));
 
   return (
     <div className="page max-w-3xl">
+      <div className="flex items-center justify-between gap-3">
       <div className="relative w-80">
         <Search className="absolute left-2.5 top-2 h-4 w-4 text-ink-3 pointer-events-none" aria-hidden />
         <input
@@ -121,8 +125,51 @@ export const HelpView: React.FC = () => {
           className="field pl-8"
         />
       </div>
+        <button onClick={() => useNavStore.getState().setTourOpen(true)} className="btn btn-primary">Start Tutorial</button>
+      </div>
 
-      {topics.length === 0 && keys.length === 0 && <p className="empty">Nothing in the help matches “{query}”. Try fewer or different words.</p>}
+      {screens.length > 0 && (
+        <section className="card overflow-hidden">
+          <h2 className="px-5 pt-5 pb-2 text-[15px] font-semibold tracking-tight">What Each Screen Does</h2>
+          <table className="tbl">
+            <tbody>
+              {screens.map((sc) => (
+                <tr key={sc.id}>
+                  <td className="w-40 font-medium whitespace-nowrap align-top">{sc.name}</td>
+                  <td className="text-ink-2">
+                    {sc.what}
+                    <ul className="list-disc pl-4 pt-1 space-y-0.5 marker:text-ink-3">
+                      {sc.points.map((pt) => <li key={pt}>{pt}</li>)}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {menus.length > 0 && (
+        <section className="card overflow-hidden">
+          <h2 className="px-5 pt-5 pb-2 text-[15px] font-semibold tracking-tight">What Each Menu Does</h2>
+          <table className="tbl">
+            <tbody>
+              {menus.map((m) => (
+                <tr key={m.menu}>
+                  <td className="w-40 font-medium whitespace-nowrap align-top">{m.menu}</td>
+                  <td className="text-ink-2">
+                    <ul className="space-y-1">
+                      {m.items.map(([label, does]) => <li key={label}><span className="text-ink">{label}.</span> {does}</li>)}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {screens.length === 0 && menus.length === 0 && topics.length === 0 && keys.length === 0 && <p className="empty">Nothing in the help matches “{query}”. Try fewer or different words.</p>}
 
       {topics.map((t) => (
         <section key={t.title} className="card p-5 space-y-2">

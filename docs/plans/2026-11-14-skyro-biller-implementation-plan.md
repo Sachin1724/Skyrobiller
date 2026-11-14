@@ -866,3 +866,7 @@ This plan is ready for immediate step-by-step execution.
 1. **Initialize Workspace:** Scaffolding the repository, setting up TypeScript, Vite, Electron, Tailwind CSS, and shadcn/ui.
 2. **Execute Phase by Phase:** Following Test-Driven Development (TDD) for the GST engine, local SQLite FTS5 setup, and Supabase integration.
 
+> **Revision 6 (2026-11-15) — first-run tutorial.**
+> 1. A guided tour (`src/components/Tour.tsx`) opens on the first launch, dims the app and highlights each sidebar screen, the header actions and the menu bar, with Back, Next, Skip and a progress bar. It remembers completion in `local_settings` under `tourDone`.
+> 2. Help > Start Tutorial and a button on the Help screen replay it. Esc skips; arrow keys step.
+> 3. The Help screen also lists what each screen and each menu does. The text lives in one file (`src/lib/guide.ts`) that feeds both the tour and the Help screen.
