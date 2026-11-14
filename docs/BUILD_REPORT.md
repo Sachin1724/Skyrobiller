@@ -83,6 +83,32 @@ Key business and engineering requirements:
 5. **Verified Production Build:**
    - `npm run build` runs `tsc && vite build`, successfully producing `dist/` and `dist-electron/` without errors or warnings.
 
+### Phase 2: Invoicing, Payments & Branding Enhancements
+1. **Click-to-Preview on Dashboard / Home (`DashboardView.tsx`)**:
+   - Recent Invoices table rows are now clickable (`cursor-pointer hover:bg-surface-2 transition-colors`).
+   - Clicking opens the full invoice preview modal with Print, Save PDF, and Open in Invoices buttons.
+   - Menu actions for Print and Save PDF seamlessly handle open dashboard previews.
+
+2. **Re-edit Issued Invoices (`InvoiceEditor.tsx`, `InvoicesView.tsx`, `schema.ts`, `db.ts`)**:
+   - Updated the SQLite trigger `trg_invoice_immutable` in `electron/main/schema.ts` to strictly protect sequence number, financial year, and invoice identity, while allowing corrections to invoice content (customer, items, totals, notes, due date).
+   - Added `updateInvoice` in `src/lib/db.ts`.
+   - `InvoiceEditor.tsx` accepts an `existingInvoice` prop to load the invoice, displays `Editing Invoice · {invoiceNumber}`, and saves updates with "Save Changes" without consuming a new sequence number.
+   - Added an Edit button (`Pencil` icon) to each row in the Issued tab of `InvoicesView.tsx` and directly inside the invoice preview modal.
+
+3. **Auto Image Resizer and Compressor (`src/lib/image.ts`, `SettingsView.tsx`)**:
+   - Integrated client-side canvas compressor in `SettingsView.tsx`.
+   - Uploading high-resolution company logos or signatures now automatically downscales to invoice dimensions (max 400x160 for logo, 300x100 for signature) and encodes into compact format (typically 25-120 KB), removing the rigid 300 KB file-size rejection.
+
+4. **Partial and Full Payment Support (`PaymentModal.tsx`, `db.ts`)**:
+   - Added one-click quick-fill buttons (`Full`, `50%`, `25%`) in `PaymentModal.tsx`.
+   - Displays live status indicator (`Paid in Full` vs `Partially Paid` with calculated remaining balance).
+   - Added `listPaymentsForInvoice` to query and display all prior payment installments recorded for that invoice.
+
+5. **Verification**:
+   - `scripts/db.check.ts` passes (`db ok`).
+   - `scripts/gst.check.ts` passes (`gst ok`).
+   - `npm run build` succeeds cleanly.
+
 ---
 
 ## 5. Next Planned Activities (Phase 2 & Phase 3)

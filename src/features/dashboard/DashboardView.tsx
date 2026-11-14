@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { FileText, FileCheck2 } from 'lucide-react';
+import { FileText, FileCheck2, Printer, FileDown, ArrowRight } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
-import { useNavStore } from '../../store/useNavStore';
+import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import { listInvoices, listDrafts, newDraftId, financialYearOf, outstandingOf, paymentStatusOf, type Invoice } from '../../lib/db';
+import { invoiceDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
+import { Modal } from '../../components/Modal';
 
 export const DashboardView: React.FC = () => {
   const { setCurrentModule, setActiveInvoiceDraftId } = useNavStore();
+  const company = useSystemStore((s) => s.company);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [draftCount, setDraftCount] = useState(0);
   const [openQuotes, setOpenQuotes] = useState(0);
+  const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice: Invoice } | null>(null);
   const [error, setError] = useState('');
   const hiddenCards = useSystemStore((s) => s.prefs.hiddenCards);
 
@@ -22,6 +26,17 @@ export const DashboardView: React.FC = () => {
       })
       .catch((e) => setError(e.message));
   }, []);
+
+  useMenuAction({
+    'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(e.message)); },
+    'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
+  });
+
+  const openPreview = (doc: PrintableDocument, invoice: Invoice) => {
+    buildLook(doc, company)
+      .then((look) => setPreview({ doc, html: documentHtml(doc, look), invoice }))
+      .catch((e) => setError(e.message));
+  };
 
   const today = todayISO();
   const live = invoices.filter((i) => i.status === 'issued');
@@ -85,8 +100,13 @@ export const DashboardView: React.FC = () => {
               {invoices.slice(0, 8).map((inv) => {
                 const status = paymentStatusOf(inv);
                 return (
-                  <tr key={inv.id}>
-                    <td className="font-medium tabular-nums whitespace-nowrap">{inv.invoiceNumber}</td>
+                  <tr
+                    key={inv.id}
+                    onClick={() => openPreview(invoiceDocument(inv), inv)}
+                    className="cursor-pointer hover:bg-surface-2 transition-colors"
+                    title="Click to preview invoice"
+                  >
+                    <td className="font-medium tabular-nums whitespace-nowrap text-accent hover:underline">{inv.invoiceNumber}</td>
                     <td className="whitespace-nowrap">{formatDate(inv.issueDate)}</td>
                     <td className="max-w-xs"><div className="truncate">{inv.customer.businessName}</div></td>
                     <td className="num font-medium">{formatCurrencyINR(inv.total)}</td>
@@ -98,6 +118,32 @@ export const DashboardView: React.FC = () => {
           </table>
         </div>
       </section>
+
+      {preview && (
+        <Modal wide title={`${preview.doc.title} · ${preview.doc.number}`} onClose={() => setPreview(null)}>
+          <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded-lg border border-line bg-white" />
+          <div className="flex justify-end pt-4">
+            <button
+              onClick={() => {
+                setPreview(null);
+                setCurrentModule('invoices');
+              }}
+              className="btn mr-2"
+            >
+              <ArrowRight className="h-4 w-4" aria-hidden />
+              Open in Invoices
+            </button>
+            <button onClick={() => printDocument(preview.doc, company).catch((e) => setError(e.message))} className="btn mr-2">
+              <Printer className="h-4 w-4" aria-hidden />
+              Print
+            </button>
+            <button onClick={() => savePdf(preview.doc, company).catch((e) => setError(e.message))} className="btn btn-primary">
+              <FileDown className="h-4 w-4" aria-hidden />
+              Save PDF
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

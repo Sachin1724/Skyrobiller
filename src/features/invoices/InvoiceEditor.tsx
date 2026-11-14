@@ -3,8 +3,8 @@ import { ArrowLeft, PauseCircle, Trash2, CheckCircle2, FileDown, Plus } from 'lu
 import { SearchBox } from '../../components/SearchBox';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import {
-  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice,
-  type Customer, type Product, type DraftKind, type QuotationStatus,
+  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, updateInvoice,
+  type Customer, type Product, type DraftKind, type QuotationStatus, type Invoice,
 } from '../../lib/db';
 import { savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { useMenuAction, setFlushOpenWork } from '../../store/useNavStore';
@@ -18,11 +18,13 @@ interface Props {
   draftId: string; // a new id starts an empty document
   kind: DraftKind;
   onClose: (issuedNumber?: string) => void;
+  existingInvoice?: Invoice | null;
 }
 
-// Editor for an invoice draft or a quotation. Everything typed is autosaved to the local database.
-export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
+// Editor for an invoice draft, quotation, or editing an issued invoice.
+export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existingInvoice }) => {
   const company = useSystemStore((s) => s.company);
+  const isEditingIssued = Boolean(existingInvoice);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [items, setItems] = useState<InvoiceLine[]>([]);
   const [notes, setNotes] = useState('');
@@ -40,17 +42,26 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const latest = useRef({ customer, items, notes, validUntil, status, total: totals.total });
   latest.current = { customer, items, notes, validUntil, status, total: totals.total };
   const timer = useRef<number | undefined>(undefined);
-  const closed = useRef(false); // set once the draft is issued, so no late autosave can recreate it
+  const closed = useRef(false); // set once the draft is issued or saved, so no late autosave can recreate it
 
   const persist = (isParked: boolean): Promise<void> => {
     window.clearTimeout(timer.current);
     timer.current = undefined;
+    if (isEditingIssued || closed.current || (!latest.current.customer && latest.current.items.length === 0)) {
+      return Promise.resolve(); // nothing worth saving to drafts
+    }
     const d = latest.current;
-    if (closed.current || (!d.customer && d.items.length === 0)) return Promise.resolve(); // nothing worth saving
     return saveDraft({ draftId, kind, isParked, ...d }).catch((e) => setError(`Not saved: ${e.message}. Check disk space and try again.`));
   };
 
   useEffect(() => {
+    if (existingInvoice) {
+      setCustomer(existingInvoice.customer);
+      setItems(existingInvoice.items);
+      setNotes(existingInvoice.notes);
+      setLoaded(true);
+      return;
+    }
     getDraft(draftId).then((d) => {
       if (d) {
         setCustomer(d.customer); setItems(d.items); setNotes(d.notes); setStatus(d.status);
@@ -58,7 +69,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
       }
       setLoaded(true);
     }).catch((e) => setError(e.message));
-  }, [draftId]);
+  }, [draftId, existingInvoice]);
 
   // Autosave while typing; editing a parked invoice makes it an active draft again
   useEffect(() => {
@@ -157,6 +168,30 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
     }
   };
 
+  const handleSave = async () => {
+    const cust = validate();
+    if (!cust || !existingInvoice) return;
+    if (!window.confirm(`Save changes to invoice ${existingInvoice.invoiceNumber} for ${formatCurrencyINR(totals.total)}?`)) return;
+    setBusy(true);
+    try {
+      window.clearTimeout(timer.current);
+      timer.current = undefined;
+      await updateInvoice({
+        id: existingInvoice.id,
+        customer: cust,
+        items,
+        totals,
+        notes,
+        dueDate: addDaysISO(existingInvoice.issueDate, cust.paymentTermsDays),
+      });
+      closed.current = true;
+      onClose(existingInvoice.invoiceNumber);
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+
   // The quotation as a printable document, or null (with a message) when it is incomplete or this is an invoice draft
   const quotationDocument = (): PrintableDocument | null => {
     if (kind === 'invoice') { setError('A draft has no invoice number yet. Issue the invoice first, then save or print it from the Issued list.'); return null; }
@@ -176,7 +211,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const handleQuotationPdf = () => output(savePdf);
 
   useMenuAction({
-    'save': () => { persist(false).then(() => setNotice(`Saved ${draftId}.`)); },
+    'save': () => {
+      if (isEditingIssued) handleSave();
+      else persist(false).then(() => setNotice(`Saved ${draftId}.`));
+    },
     'save-copy': () => {
       const copyId = newDraftId(kind);
       const d = latest.current;
@@ -196,13 +234,22 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
             <ArrowLeft className="h-4 w-4" aria-hidden />
             Back
           </button>
-          <span className="badge tabular-nums">{draftId}</span>
+          <span className="badge tabular-nums">{existingInvoice ? existingInvoice.invoiceNumber : draftId}</span>
           <span className="text-xs text-ink-2 truncate">
-            {kind === 'invoice' ? 'Draft. Saved automatically. No invoice number is used until you issue it.' : 'Quotation. Saved automatically.'}
+            {isEditingIssued
+              ? 'Editing issued invoice. Changes update the invoice record.'
+              : kind === 'invoice'
+                ? 'Draft. Saved automatically. No invoice number is used until you issue it.'
+                : 'Quotation. Saved automatically.'}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {kind === 'invoice' ? (
+          {isEditingIssued ? (
+            <button onClick={handleSave} disabled={busy} className="btn btn-primary">
+              <CheckCircle2 className="h-4 w-4" aria-hidden />
+              {busy ? 'Saving…' : 'Save Changes'}
+            </button>
+          ) : kind === 'invoice' ? (
             <>
               <button onClick={() => close(true)} className="btn">
                 <PauseCircle className="h-4 w-4" aria-hidden />

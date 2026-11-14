@@ -88,10 +88,24 @@ assert.equal((await issue('D-2', '2026-11-15')).invoiceNumber, 'SKY/2026-27/0002
 assert.equal((await issue('D-3', '2027-04-02')).invoiceNumber, 'SKY/2027-28/0001'); // new year restarts
 assert.ok(inv1.invoiceNumber.length <= 16); // GST rule 46 limit
 
-// --- Issued invoices are immutable
+// --- Issued invoice number and sequence are immutable, and deletes are forbidden
 const raw = (sql: string) => (globalThis as any).window.electronAPI.dbBatch([{ sql }]);
-assert.match((await raw(`UPDATE local_invoices SET total = 1 WHERE id = 'D-1'`)).error, /cannot be edited/);
+assert.match((await raw(`UPDATE local_invoices SET invoice_number = 'SKY/2026-27/9999' WHERE id = 'D-1'`)).error, /cannot be altered/);
+assert.match((await raw(`UPDATE local_invoices SET seq = 999 WHERE id = 'D-1'`)).error, /cannot be altered/);
 assert.match((await raw(`DELETE FROM local_invoices WHERE id = 'D-1'`)).error, /cannot be deleted/);
+
+// --- Editing invoice content is supported while keeping the sequence
+await db.updateInvoice({
+  id: 'D-1',
+  customer: c,
+  items,
+  totals,
+  notes: 'Updated invoice note',
+  dueDate: '2026-11-20',
+});
+const [updatedD1] = (await db.listInvoices()).filter((i) => i.id === 'D-1');
+assert.equal(updatedD1.notes, 'Updated invoice note');
+assert.equal(updatedD1.invoiceNumber, 'SKY/2026-27/0001');
 
 // --- Payments: partial, full, overpayment refused
 const pay = (invoiceId: string, amount: number) => db.addPayment({ invoiceId, amount, paidOn: '2026-11-16', method: 'UPI', reference: 'utr' });
@@ -102,10 +116,20 @@ const [paid] = (await db.listInvoices()).filter((i) => i.id === 'D-1');
 assert.deepEqual([paid.paid, db.outstandingOf(paid), db.paymentStatusOf(paid).label], [6844, 0, 'Paid']);
 assert.equal((await db.listPayments()).length, 2);
 
+// --- Editing totals: allowed when unpaid, refused below what is already paid
+const cheap = [{ ...items[0], rate: 1000 }];
+const cheapTotals = computeInvoice(cheap, '21', '21');
+const edit = (id: string) => db.updateInvoice({ id, customer: c, items: cheap, totals: cheapTotals, notes: '', dueDate: '2026-11-20' });
+await assert.rejects(edit('D-1'), /already paid or credited/);
+await edit('D-3');
+assert.equal((await db.listInvoices()).find((i) => i.id === 'D-3')!.total, cheapTotals.total);
+await db.updateInvoice({ id: 'D-3', customer: c, items, totals, notes: '', dueDate: '2026-11-20' }); // restore
+
 // --- Cancelling keeps the record and number, and blocks payments
 await db.cancelInvoice('D-2');
 await assert.rejects(pay('D-2', 1), /more than the outstanding/);
 assert.equal((await db.listInvoices({ from: '2026-11-15', to: '2026-11-15' }))[0].status, 'cancelled');
+assert.match((await raw(`UPDATE local_invoices SET notes = 'X' WHERE id = 'D-2'`)).error, /Cancelled invoices cannot be edited/);
 
 // --- Credit notes: own series, reduce outstanding, capped at the invoice value, immutable
 const inv3 = (await db.listInvoices()).find((i) => i.id === 'D-3')!;

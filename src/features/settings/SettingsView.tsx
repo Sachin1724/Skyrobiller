@@ -4,8 +4,7 @@ import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import { documentHtml, TEMPLATES, ACCENT_PRESETS, DENSITIES, COPY_LABELS, type TemplateId, type Density, type PrintableDocument } from '../../lib/pdf';
 import { useSystemStore, type Company, type Prefs } from '../../store/useSystemStore';
 import { useMenuAction, type AppModule } from '../../store/useNavStore';
-
-const MAX_IMAGE_BYTES = 300 * 1024;
+import { compressImage } from '../../lib/image';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
 const DASHBOARD_CARDS: [string, string][] = [['month', 'Sales This Month'], ['year', 'Sales This Financial Year'], ['outstanding', 'Outstanding'], ['progress', 'In Progress']];
@@ -74,18 +73,19 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  // Reads a chosen image into a data URL and hands it to `set`
-  const pickImage = (set: (dataUrl: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Reads a chosen image, automatically scales and compresses it for crisp invoice rendering
+  const pickImage = (set: (dataUrl: string) => void, isSignature = false) => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > MAX_IMAGE_BYTES) {
-      say('', `That image is ${Math.round(file.size / 1024)} KB. Choose a PNG or JPEG under 300 KB.`);
-      e.target.value = '';
-      return;
+    try {
+      const maxW = isSignature ? 300 : 400;
+      const maxH = isSignature ? 100 : 160;
+      const res = await compressImage(file, maxW, maxH);
+      set(res.dataUrl);
+      say(`Image optimized (${res.originalKb} KB → ${res.compressedKb} KB, ${res.width}×${res.height}px).`);
+    } catch (err: any) {
+      say('', `Could not process image: ${err.message}`);
     }
-    const reader = new FileReader();
-    reader.onload = () => { set(String(reader.result)); say(''); };
-    reader.readAsDataURL(file);
   };
 
   const toggleCopy = (label: string, on: boolean) =>
@@ -109,11 +109,11 @@ export const SettingsView: React.FC = () => {
     </label>
   );
 
-  const imagePicker = (label: string, value: string, set: (v: string) => void) => (
+  const imagePicker = (label: string, value: string, set: (v: string) => void, isSignature = false) => (
     <div className="flex items-end gap-3">
       {value && <img src={value} alt={`Current ${label.toLowerCase()}`} width={96} height={48} className="h-12 w-24 object-contain rounded-lg border border-line bg-white" />}
-      <label className="label">{label} (PNG or JPEG, Under 300 KB)
-        <input type="file" accept="image/png,image/jpeg" onChange={pickImage(set)} className="text-xs text-ink file:btn file:mr-2 file:border-0" />
+      <label className="label">{label} (PNG or JPEG, auto-resized)
+        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pickImage(set, isSignature)} className="text-xs text-ink file:btn file:mr-2 file:border-0" />
       </label>
       {value && <button type="button" onClick={() => set('')} className="btn btn-danger">Remove</button>}
     </div>
@@ -193,7 +193,7 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            {imagePicker('Signature', signature, setSignature)}
+            {imagePicker('Signature', signature, setSignature, true)}
 
             <fieldset className="space-y-1.5">
               <legend className="text-xs font-medium text-ink-2 mb-1">Copies in Each Invoice PDF (None Ticked = One Unmarked Copy)</legend>

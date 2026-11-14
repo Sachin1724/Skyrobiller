@@ -346,6 +346,41 @@ export async function issueInvoice(input: {
   return toInvoice(rows[0]);
 }
 
+// Updates an issued invoice's customer, items, totals, notes or due date while preserving its permanent invoice number and sequence.
+export async function updateInvoice(input: {
+  id: string;
+  customer: Customer;
+  items: InvoiceLine[];
+  totals: InvoiceTotals;
+  notes: string;
+  dueDate: string;
+}): Promise<void> {
+  const [row] = await query<{ settled: number }>(
+    `SELECT coalesce((SELECT sum(amount) FROM local_payments WHERE invoice_id = ?1), 0)
+          + coalesce((SELECT sum(total) FROM local_credit_notes WHERE invoice_id = ?1), 0) AS settled`,
+    [input.id],
+  );
+  if (input.totals.total < row.settled - 0.005) {
+    throw new Error(`New total is below the ${row.settled.toFixed(2)} already paid or credited`);
+  }
+  return execute(
+    `UPDATE local_invoices
+     SET customer_id = ?, customer_name = ?, customer_json = ?, items_json = ?, totals_json = ?, total = ?, notes = ?, due_date = ?
+     WHERE id = ? AND status = 'issued'`,
+    [
+      input.customer.id,
+      input.customer.businessName,
+      JSON.stringify(input.customer),
+      JSON.stringify(input.items),
+      JSON.stringify(input.totals),
+      input.totals.total,
+      input.notes,
+      input.dueDate,
+      input.id,
+    ],
+  );
+}
+
 // The number stays used and the record stays in place; only the status changes.
 export function cancelInvoice(id: string): Promise<void> {
   return execute(`UPDATE local_invoices SET status = 'cancelled' WHERE id = ?`, [id]);
@@ -396,6 +431,17 @@ export function listPayments(): Promise<Payment[]> {
        p.amount, p.paid_on AS paidOn, p.method, coalesce(p.reference, '') AS reference
      FROM local_payments p JOIN local_invoices i ON i.id = p.invoice_id
      ORDER BY p.paid_on DESC, p.created_at DESC`,
+  );
+}
+
+export function listPaymentsForInvoice(invoiceId: string): Promise<Payment[]> {
+  return query<Payment>(
+    `SELECT p.id, p.invoice_id AS invoiceId, i.invoice_number AS invoiceNumber, i.customer_name AS customerName,
+       p.amount, p.paid_on AS paidOn, p.method, coalesce(p.reference, '') AS reference
+     FROM local_payments p JOIN local_invoices i ON i.id = p.invoice_id
+     WHERE p.invoice_id = ?
+     ORDER BY p.paid_on ASC, p.created_at ASC`,
+    [invoiceId],
   );
 }
 

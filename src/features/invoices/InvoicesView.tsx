@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Play, Trash2, FileDown, IndianRupee, Ban, Eye, Copy, Undo2, Printer } from 'lucide-react';
+import { Search, Play, Trash2, FileDown, IndianRupee, Ban, Eye, Copy, Undo2, Printer, Pencil } from 'lucide-react';
 import { formatCurrencyINR, formatDate } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
@@ -25,11 +25,12 @@ export const InvoicesView: React.FC = () => {
   const [credits, setCredits] = useState<CreditNote[]>([]);
   const [paying, setPaying] = useState<Invoice | null>(null);
   const [crediting, setCrediting] = useState<Invoice | null>(null);
-  const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string } | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice?: Invoice } | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
-  const isEditorOpen = activeInvoiceDraftId !== null;
+  const isEditorOpen = activeInvoiceDraftId !== null || editingInvoice !== null;
 
   const reload = () =>
     Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes()])
@@ -43,6 +44,22 @@ export const InvoicesView: React.FC = () => {
     'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(e.message)); },
     'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
   });
+
+  if (editingInvoice !== null) {
+    return (
+      <InvoiceEditor
+        key={editingInvoice.id}
+        draftId={editingInvoice.id}
+        kind="invoice"
+        existingInvoice={editingInvoice}
+        onClose={(savedNum) => {
+          setNotice(savedNum ? `Saved changes to invoice ${savedNum}.` : '');
+          setEditingInvoice(null);
+          reload();
+        }}
+      />
+    );
+  }
 
   if (activeInvoiceDraftId !== null) {
     return (
@@ -81,8 +98,8 @@ export const InvoicesView: React.FC = () => {
     }
   };
 
-  const openPreview = (doc: PrintableDocument) =>
-    buildLook(doc, company).then((look) => setPreview({ doc, html: documentHtml(doc, look) })).catch(fail);
+  const openPreview = (doc: PrintableDocument, invoice?: Invoice) =>
+    buildLook(doc, company).then((look) => setPreview({ doc, html: documentHtml(doc, look), invoice })).catch(fail);
 
   const term = searchTerm.toLowerCase();
   const matches = (...values: string[]) => values.some((v) => v.toLowerCase().includes(term));
@@ -150,8 +167,11 @@ export const InvoicesView: React.FC = () => {
                     <td className="num">{formatCurrencyINR(due)}</td>
                     <td><span className={status.badge}>{status.label}</span></td>
                     <td className="num">
-                      <button onClick={() => openPreview(invoiceDocument(inv))} className="btn btn-icon" aria-label={`View ${n}`} title="View">
+                      <button onClick={() => openPreview(invoiceDocument(inv), inv)} className="btn btn-icon" aria-label={`View ${n}`} title="View">
                         <Eye className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button onClick={() => setEditingInvoice(inv)} disabled={inv.status === 'cancelled'} className="btn btn-icon" aria-label={`Edit ${n}`} title={inv.status === 'cancelled' ? 'Cancelled invoices cannot be edited' : 'Edit invoice'}>
+                        <Pencil className="h-4 w-4" aria-hidden />
                       </button>
                       <button onClick={() => savePdf(invoiceDocument(inv), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${n}`} title="Save PDF">
                         <FileDown className="h-4 w-4" aria-hidden />
@@ -267,6 +287,19 @@ export const InvoicesView: React.FC = () => {
         <Modal wide title={`${preview.doc.title} · ${preview.doc.number}`} onClose={() => setPreview(null)}>
           <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded-lg border border-line bg-white" />
           <div className="flex justify-end pt-4">
+            {preview.invoice && preview.invoice.status !== 'cancelled' && (
+              <button
+                onClick={() => {
+                  const inv = preview.invoice!;
+                  setPreview(null);
+                  setEditingInvoice(inv);
+                }}
+                className="btn mr-2"
+              >
+                <Pencil className="h-4 w-4" aria-hidden />
+                Edit Invoice
+              </button>
+            )}
             <button onClick={() => printDocument(preview.doc, company).catch(fail)} className="btn mr-2">
               <Printer className="h-4 w-4" aria-hidden />
               Print

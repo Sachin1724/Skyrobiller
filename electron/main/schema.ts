@@ -70,12 +70,20 @@ const SCHEMA = `
     UNIQUE (financial_year, seq)
   );
 
-  -- An issued invoice keeps its original details forever; only status may change (cancellation)
-  CREATE TRIGGER IF NOT EXISTS trg_invoice_immutable
-  BEFORE UPDATE OF id, invoice_number, financial_year, seq, issue_date, due_date, customer_id, customer_name,
-    customer_json, company_json, items_json, totals_json, total, notes, created_at ON local_invoices
+  -- Invoice numbering sequence and identity are strictly permanent. Content can be corrected, but cancelled invoices cannot be edited.
+  DROP TRIGGER IF EXISTS trg_invoice_immutable;
+  CREATE TRIGGER trg_invoice_immutable
+  BEFORE UPDATE OF id, invoice_number, financial_year, seq, created_at ON local_invoices
   BEGIN
-    SELECT RAISE(ABORT, 'Issued invoices cannot be edited');
+    SELECT RAISE(ABORT, 'Invoice number, financial year, and sequence cannot be altered');
+  END;
+
+  DROP TRIGGER IF EXISTS trg_invoice_cancelled_immutable;
+  CREATE TRIGGER trg_invoice_cancelled_immutable
+  BEFORE UPDATE ON local_invoices
+  WHEN OLD.status = 'cancelled'
+  BEGIN
+    SELECT RAISE(ABORT, 'Cancelled invoices cannot be edited');
   END;
 
   CREATE TRIGGER IF NOT EXISTS trg_invoice_no_delete
