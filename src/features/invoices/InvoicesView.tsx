@@ -1,231 +1,283 @@
-import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  FileText, 
-  Printer, 
-  Download, 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle,
-  Eye,
-  PauseCircle,
-  ArrowRight
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Search, Play, Trash2, FileDown, IndianRupee, Ban, Eye, Copy, Undo2, Printer } from 'lucide-react';
 import { formatCurrencyINR, formatDate } from '../../lib/utils';
-import { useNavStore } from '../../store/useNavStore';
+import { useNavStore, useMenuAction } from '../../store/useNavStore';
+import { useSystemStore } from '../../store/useSystemStore';
+import {
+  listDrafts, listInvoices, listCreditNotes, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf,
+  type Draft, type Invoice, type CreditNote,
+} from '../../lib/db';
+import { invoiceDocument, creditNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
+import { Modal } from '../../components/Modal';
+import { InvoiceEditor } from './InvoiceEditor';
+import { CreditNoteModal } from './CreditNoteModal';
+import { PaymentModal } from '../payments/PaymentModal';
 
-interface InvoiceListItem {
-  id: string;
-  invoiceNumber: string;
-  customerName: string;
-  customerGstin: string;
-  placeOfSupply: string;
-  issueDate: string;
-  taxableAmount: number;
-  totalTax: number;
-  totalAmount: number;
-  paymentStatus: 'paid' | 'unpaid' | 'partially_paid';
-  status: 'issued' | 'draft' | 'parked';
-}
+type Tab = 'issued' | 'drafts' | 'credits';
 
 export const InvoicesView: React.FC = () => {
-  const { toggleParkedDrawer } = useNavStore();
+  const { activeInvoiceDraftId, setActiveInvoiceDraftId, isParkedDrawerOpen } = useNavStore();
+  const company = useSystemStore((s) => s.company);
+  const [tab, setTab] = useState<Tab>('issued');
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'issued' | 'drafts'>('all');
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [credits, setCredits] = useState<CreditNote[]>([]);
+  const [paying, setPaying] = useState<Invoice | null>(null);
+  const [crediting, setCrediting] = useState<Invoice | null>(null);
+  const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string } | null>(null);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
 
-  // Mock initial invoices dataset
-  const [invoices] = useState<InvoiceListItem[]>([
-    {
-      id: '1',
-      invoiceNumber: 'SKY/2026-27/0042',
-      customerName: 'SkyHigh Drones Pvt Ltd',
-      customerGstin: '21AABCS9821K1ZZ',
-      placeOfSupply: 'Odisha (21)',
-      issueDate: '2026-11-14',
-      taxableAmount: 38305.08,
-      totalTax: 6894.92,
-      totalAmount: 45200.00,
-      paymentStatus: 'paid',
-      status: 'issued',
-    },
-    {
-      id: '2',
-      invoiceNumber: 'SKY/2026-27/0041',
-      customerName: 'Garuda Tech Aerospace',
-      customerGstin: '29AAACG8412F1Z8',
-      placeOfSupply: 'Karnataka (29)',
-      issueDate: '2026-11-14',
-      taxableAmount: 75000.00,
-      totalTax: 13500.00,
-      totalAmount: 88500.00,
-      paymentStatus: 'unpaid',
-      status: 'issued',
-    },
-    {
-      id: '3',
-      invoiceNumber: 'SKY/2026-27/0040',
-      customerName: 'Rajesh Sharma (FPV Hobbyist)',
-      customerGstin: 'URP (Consumer)',
-      placeOfSupply: 'Odisha (21)',
-      issueDate: '2026-11-14',
-      taxableAmount: 7593.22,
-      totalTax: 1366.78,
-      totalAmount: 8960.00,
-      paymentStatus: 'paid',
-      status: 'issued',
-    },
-    {
-      id: '4',
-      invoiceNumber: 'DRF-PC1-20261114-001',
-      customerName: 'AeroDynamics India',
-      customerGstin: '21AAACA9999P1Z2',
-      placeOfSupply: 'Odisha (21)',
-      issueDate: 'Draft (In prep)',
-      taxableAmount: 20762.71,
-      totalTax: 3737.29,
-      totalAmount: 24500.00,
-      paymentStatus: 'unpaid',
-      status: 'parked',
-    }
-  ]);
+  const isEditorOpen = activeInvoiceDraftId !== null;
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesSearch = 
-      inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customerGstin.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (activeTab === 'issued') return matchesSearch && inv.status === 'issued';
-    if (activeTab === 'drafts') return matchesSearch && (inv.status === 'draft' || inv.status === 'parked');
-    return matchesSearch;
+  const reload = () =>
+    Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes()])
+      .then(([d, i, c]) => { setDrafts(d); setInvoices(i); setCredits(c); })
+      .catch((e) => setError(e.message));
+  // Refresh when the editor closes and when the parked list closes (it can delete drafts)
+  useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen, isParkedDrawerOpen]);
+
+  // File > Save As PDF and File > Print work on the invoice or credit note open in the viewer
+  useMenuAction({
+    'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(e.message)); },
+    'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
   });
 
+  if (activeInvoiceDraftId !== null) {
+    return (
+      <InvoiceEditor
+        key={activeInvoiceDraftId}
+        draftId={activeInvoiceDraftId}
+        kind="invoice"
+        onClose={(issuedNumber) => {
+          setNotice(issuedNumber ? `Issued as ${issuedNumber}.` : '');
+          setTab(issuedNumber ? 'issued' : 'drafts');
+          setActiveInvoiceDraftId(null);
+        }}
+      />
+    );
+  }
+
+  const fail = (e: any) => setError(e.message);
+  const run = (action: Promise<unknown>) => action.then(reload).catch(fail);
+
+  const handleDeleteDraft = (d: Draft) => {
+    if (window.confirm(`Delete draft ${d.draftId}? This cannot be undone.`)) run(deleteDraft(d.draftId));
+  };
+
+  const handleCancel = (inv: Invoice) => {
+    if (window.confirm(`Cancel invoice ${inv.invoiceNumber}? The number stays used and the invoice is kept as cancelled. This cannot be undone.`)) run(cancelInvoice(inv.id));
+  };
+
+  // Same customer and lines in a fresh draft, for repeat orders
+  const handleDuplicate = async (inv: Invoice) => {
+    const draftId = newDraftId('invoice');
+    try {
+      await saveDraft({ draftId, kind: 'invoice', isParked: false, customer: inv.customer, items: inv.items, total: inv.total, notes: inv.notes, validUntil: '', status: 'draft' });
+      setActiveInvoiceDraftId(draftId);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const openPreview = (doc: PrintableDocument) =>
+    buildLook(doc, company).then((look) => setPreview({ doc, html: documentHtml(doc, look) })).catch(fail);
+
+  const term = searchTerm.toLowerCase();
+  const matches = (...values: string[]) => values.some((v) => v.toLowerCase().includes(term));
+  const shownInvoices = invoices.filter((i) => matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin));
+  const shownDrafts = drafts.filter((d) => matches(d.draftId, d.customer?.businessName ?? '', d.customer?.gstin ?? ''));
+  const shownCredits = credits.filter((c) => matches(c.creditNumber, c.invoiceNumber, c.customer.businessName));
+
   return (
-    <div className="space-y-6 animate-fade-in p-6">
-      {/* Top Action Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Search Input */}
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+    <div className="page">
+      <div className="flex items-center justify-between gap-4">
+        <div className="segmented" role="group" aria-label="Invoice list">
+          <button aria-pressed={tab === 'issued'} onClick={() => setTab('issued')}>Issued</button>
+          <button aria-pressed={tab === 'drafts'} onClick={() => setTab('drafts')}>Drafts ({drafts.length})</button>
+          <button aria-pressed={tab === 'credits'} onClick={() => setTab('credits')}>Credit Notes ({credits.length})</button>
+        </div>
+        <div className="relative w-80">
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-ink-3 pointer-events-none" aria-hidden />
           <input
-            type="text"
-            placeholder="Search invoice number, customer or GSTIN..."
+            type="search"
+            aria-label="Search invoices"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Search number, customer or GSTIN…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="field pl-8"
           />
         </div>
+      </div>
 
-        {/* Tab Controls & New Invoice Button */}
-        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-          <div className="flex items-center bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
-            <button
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-all ${
-                activeTab === 'all' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All
+      <p aria-live="polite" className="text-success font-medium empty:hidden">{notice}</p>
+      {error && <p role="alert" className="error">{error}</p>}
+
+      <div className="card overflow-hidden">
+        {tab === 'issued' && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Invoice No.</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th className="num">Total</th>
+                <th className="num">Outstanding</th>
+                <th>Status</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shownInvoices.length === 0 && (
+                <tr><td colSpan={7} className="empty">{searchTerm ? 'No invoices match this search.' : 'No invoices issued yet. Use New Invoice to create one.'}</td></tr>
+              )}
+              {shownInvoices.map((inv) => {
+                const status = paymentStatusOf(inv);
+                const due = outstandingOf(inv);
+                const n = inv.invoiceNumber;
+                return (
+                  <tr key={inv.id}>
+                    <td className="font-medium tabular-nums whitespace-nowrap">{n}</td>
+                    <td className="whitespace-nowrap">{formatDate(inv.issueDate)}</td>
+                    <td className="max-w-xs">
+                      <div className="truncate">{inv.customer.businessName}</div>
+                      <div className="text-xs text-ink-2 truncate">{inv.customer.gstin || 'Unregistered'}</div>
+                    </td>
+                    <td className="num font-medium">{formatCurrencyINR(inv.total)}</td>
+                    <td className="num">{formatCurrencyINR(due)}</td>
+                    <td><span className={status.badge}>{status.label}</span></td>
+                    <td className="num">
+                      <button onClick={() => openPreview(invoiceDocument(inv))} className="btn btn-icon" aria-label={`View ${n}`} title="View">
+                        <Eye className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button onClick={() => savePdf(invoiceDocument(inv), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${n}`} title="Save PDF">
+                        <FileDown className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button onClick={() => setPaying(inv)} disabled={due < 0.01} className="btn btn-icon" aria-label={`Record payment for ${n}`} title="Record payment">
+                        <IndianRupee className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button onClick={() => setCrediting(inv)} disabled={inv.status === 'cancelled' || inv.credited >= inv.total - 0.005} className="btn btn-icon" aria-label={`Issue credit note for ${n}`} title="Issue credit note">
+                        <Undo2 className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button onClick={() => handleDuplicate(inv)} className="btn btn-icon" aria-label={`Duplicate ${n} as a new draft`} title="Duplicate as new draft">
+                        <Copy className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button onClick={() => handleCancel(inv)} disabled={inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0} className="btn btn-icon btn-danger" aria-label={`Cancel ${n}`} title={inv.paid > 0 || inv.credited > 0 ? 'Invoices with payments or credit notes cannot be cancelled' : 'Cancel invoice'}>
+                        <Ban className="h-4 w-4" aria-hidden />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {tab === 'drafts' && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Draft</th>
+                <th>Last Saved</th>
+                <th>Customer</th>
+                <th className="num">Items</th>
+                <th className="num">Total</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shownDrafts.length === 0 && (
+                <tr><td colSpan={6} className="empty">{searchTerm ? 'No drafts match this search.' : 'No drafts.'}</td></tr>
+              )}
+              {shownDrafts.map((d) => (
+                <tr key={d.draftId}>
+                  <td className="whitespace-nowrap">
+                    <span className="font-medium tabular-nums">{d.draftId}</span>{' '}
+                    {d.isParked && <span className="badge badge-warn">Parked</span>}
+                  </td>
+                  <td className="whitespace-nowrap">{formatDate(d.updatedAt)}</td>
+                  <td className="max-w-xs"><div className="truncate">{d.customer?.businessName ?? 'No customer yet'}</div></td>
+                  <td className="num">{d.items.length}</td>
+                  <td className="num font-medium">{formatCurrencyINR(d.total)}</td>
+                  <td className="num">
+                    <button onClick={() => setActiveInvoiceDraftId(d.draftId)} className="btn btn-icon" aria-label={`Resume ${d.draftId}`} title="Resume">
+                      <Play className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button onClick={() => handleDeleteDraft(d)} className="btn btn-icon btn-danger" aria-label={`Delete ${d.draftId}`} title="Delete">
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {tab === 'credits' && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Credit Note No.</th>
+                <th>Date</th>
+                <th>Against Invoice</th>
+                <th>Customer</th>
+                <th>Reason</th>
+                <th className="num">Total</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shownCredits.length === 0 && (
+                <tr><td colSpan={7} className="empty">{searchTerm ? 'No credit notes match this search.' : 'No credit notes. Issue one from an invoice in the Issued list.'}</td></tr>
+              )}
+              {shownCredits.map((c) => (
+                <tr key={c.id}>
+                  <td className="font-medium tabular-nums whitespace-nowrap">{c.creditNumber}</td>
+                  <td className="whitespace-nowrap">{formatDate(c.issueDate)}</td>
+                  <td className="tabular-nums whitespace-nowrap">{c.invoiceNumber}</td>
+                  <td className="max-w-[14rem]"><div className="truncate">{c.customer.businessName}</div></td>
+                  <td className="max-w-[14rem]"><div className="truncate">{c.reason}</div></td>
+                  <td className="num font-medium">{formatCurrencyINR(c.total)}</td>
+                  <td className="num">
+                    <button onClick={() => openPreview(creditNoteDocument(c))} className="btn btn-icon" aria-label={`View ${c.creditNumber}`} title="View">
+                      <Eye className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button onClick={() => savePdf(creditNoteDocument(c), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${c.creditNumber}`} title="Save PDF">
+                      <FileDown className="h-4 w-4" aria-hidden />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {paying && <PaymentModal invoice={paying} onClose={(saved) => { setPaying(null); if (saved) reload(); }} />}
+      {crediting && (
+        <CreditNoteModal
+          invoice={crediting}
+          onClose={(saved) => { setCrediting(null); if (saved) { setTab('credits'); reload(); } }}
+        />
+      )}
+      {preview && (
+        <Modal wide title={`${preview.doc.title} · ${preview.doc.number}`} onClose={() => setPreview(null)}>
+          <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded-lg border border-line bg-white" />
+          <div className="flex justify-end pt-4">
+            <button onClick={() => printDocument(preview.doc, company).catch(fail)} className="btn mr-2">
+              <Printer className="h-4 w-4" aria-hidden />
+              Print
             </button>
-            <button
-              onClick={() => setActiveTab('issued')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-all ${
-                activeTab === 'issued' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Issued
-            </button>
-            <button
-              onClick={() => setActiveTab('drafts')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-all ${
-                activeTab === 'drafts' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Drafts / Parked
+            <button onClick={() => savePdf(preview.doc, company).catch(fail)} className="btn btn-primary">
+              <FileDown className="h-4 w-4" aria-hidden />
+              Save PDF
             </button>
           </div>
-
-          <button
-            onClick={() => setIsEditorOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New Tax Invoice</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Invoices Data Table */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/80 backdrop-blur overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400 font-semibold uppercase text-[10px]">
-              <th className="py-3 px-4">Invoice No</th>
-              <th className="py-3 px-4">Date</th>
-              <th className="py-3 px-4">Customer & GSTIN</th>
-              <th className="py-3 px-4">Place of Supply</th>
-              <th className="py-3 px-4 text-right">Taxable</th>
-              <th className="py-3 px-4 text-right">Total Amount</th>
-              <th className="py-3 px-4 text-center">Status</th>
-              <th className="py-3 px-4 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/60">
-            {filteredInvoices.map((inv) => (
-              <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                <td className="py-3 px-4">
-                  <div className="font-mono font-bold text-blue-400">{inv.invoiceNumber}</div>
-                  <span className="text-[10px] text-slate-500 uppercase">{inv.status}</span>
-                </td>
-                <td className="py-3 px-4 text-slate-400 font-medium">
-                  {inv.issueDate}
-                </td>
-                <td className="py-3 px-4">
-                  <div className="font-semibold text-slate-200">{inv.customerName}</div>
-                  <div className="text-[10px] text-slate-500 font-mono">{inv.customerGstin}</div>
-                </td>
-                <td className="py-3 px-4 text-slate-300">
-                  {inv.placeOfSupply}
-                </td>
-                <td className="py-3 px-4 text-right font-mono text-slate-400">
-                  {formatCurrencyINR(inv.taxableAmount)}
-                </td>
-                <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
-                  {formatCurrencyINR(inv.totalAmount)}
-                </td>
-                <td className="py-3 px-4 text-center">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                    inv.paymentStatus === 'paid'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                  }`}>
-                    {inv.paymentStatus.toUpperCase()}
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-center">
-                  <div className="flex items-center justify-center gap-1.5 text-slate-400">
-                    <button
-                      className="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition-colors"
-                      title="View & Print PDF"
-                    >
-                      <Printer className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      className="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition-colors"
-                      title="Download Invoice"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        </Modal>
+      )}
     </div>
   );
 };

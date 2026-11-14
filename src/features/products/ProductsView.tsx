@@ -1,171 +1,155 @@
-import React, { useState } from 'react';
-import { Plus, Search, Boxes, Tag, Edit3, ShieldAlert, Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Plus, Search, Pencil, Upload } from 'lucide-react';
 import { formatCurrencyINR } from '../../lib/utils';
-
-export interface ProductItem {
-  id: string;
-  sku: string;
-  name: string;
-  brand: string;
-  description: string;
-  unit: string;
-  hsnCode: string;
-  gstRate: number;
-  defaultPrice: number;
-  searchAliases: string[];
-}
+import { searchProducts, saveProduct, importProducts, type Product } from '../../lib/db';
+import { csvRecords, downloadCsv } from '../../lib/csv';
+import { Modal } from '../../components/Modal';
+import { useMenuAction } from '../../store/useNavStore';
+import { useSystemStore } from '../../store/useSystemStore';
 
 export const ProductsView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  // undefined = closed, null = adding, Product = editing
+  const [editing, setEditing] = useState<Product | null | undefined>(undefined);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
 
-  // Initial catalogue memory items for UAV components
-  const [products, setProducts] = useState<ProductItem[]>([
-    {
-      id: '1',
-      sku: 'SB-F405-V4',
-      name: 'SpeedyBee F405 V4 55A BLS Stack',
-      brand: 'SpeedyBee',
-      description: 'Flight Controller 30x30 with 55A 4-in-1 ESC',
-      unit: 'PCS',
-      hsnCode: '85269190',
-      gstRate: 18.0,
-      defaultPrice: 5800.00,
-      searchAliases: ['speedybee', 'f405', 'fc stack', '55a']
-    },
-    {
-      id: '2',
-      sku: 'TM-F60-PRO-V',
-      name: 'T-Motor F60 PRO V 1950KV Brushless Motor',
-      brand: 'T-Motor',
-      description: 'High-torque racing and freestyle brushless motor',
-      unit: 'PCS',
-      hsnCode: '85011019',
-      gstRate: 18.0,
-      defaultPrice: 2450.00,
-      searchAliases: ['motor', 'tmotor', '1950kv', 'f60']
-    },
-    {
-      id: '3',
-      sku: 'CX-VISTA-NEBULA',
-      name: 'Caddx Nebula Pro Digital HD Vista Kit',
-      brand: 'Caddx',
-      description: 'Digital FPV VTX system compatible with DJI Goggles',
-      unit: 'PCS',
-      hsnCode: '85258900',
-      gstRate: 18.0,
-      defaultPrice: 14200.00,
-      searchAliases: ['vtx', 'caddx', 'nebula', 'vista']
-    },
-    {
-      id: '4',
-      sku: 'HQ-V1S-5043',
-      name: 'HQProp DP 5X4.3X3 V1S Polycarbonate Propeller',
-      brand: 'HQProp',
-      description: 'Tri-blade 5-inch drone propeller set (2CW + 2CCW)',
-      unit: 'SET',
-      hsnCode: '88033000',
-      gstRate: 18.0,
-      defaultPrice: 280.00,
-      searchAliases: ['prop', 'props', '5 inch', 'hqprop']
-    },
-    {
-      id: '5',
-      sku: 'TBS-XF-NANO',
-      name: 'TBS Crossfire Nano RX Pro Receiver',
-      brand: 'Team BlackSheep',
-      description: 'Long-range ultra-light telemetry receiver',
-      unit: 'PCS',
-      hsnCode: '85269200',
-      gstRate: 18.0,
-      defaultPrice: 3200.00,
-      searchAliases: ['crossfire', 'nano rx', 'tbs', 'receiver']
+  const reload = () => searchProducts(searchTerm).then(setProducts).catch((e) => setError(e.message));
+  useEffect(() => { reload(); }, [searchTerm]);
+  const defaultGstRate = useSystemStore((s) => s.prefs.defaultGstRate);
+  useMenuAction({ 'new-product': () => openForm(null), 'import-products': () => fileInput.current?.click() });
+
+  const openForm = (p: Product | null) => { setError(''); setEditing(p); };
+
+  // Whole file or nothing: every row is checked first, then imported in one transaction
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setNotice('');
+    try {
+      const records = csvRecords(await file.text(), ['sku', 'name', 'hsn', 'gst_rate', 'price']);
+      const problems: string[] = [];
+      const rows = records.map((r, i) => {
+        const gstRate = Number(r.gst_rate), defaultPrice = Number(r.price);
+        const bad = [
+          !r.sku && 'sku is empty', !r.name && 'name is empty', !/^[0-9]{4,8}$/.test(r.hsn) && 'hsn must be 4 to 8 digits',
+          (r.gst_rate === '' || !(gstRate >= 0 && gstRate <= 28)) && 'gst_rate must be 0 to 28', (r.price === '' || !(defaultPrice >= 0)) && 'price must be a number',
+        ].filter(Boolean);
+        if (bad.length) problems.push(`Row ${i + 2}: ${bad.join(', ')}`);
+        return { sku: r.sku.toUpperCase(), name: r.name, brand: r.brand ?? '', description: r.description ?? '', unit: (r.unit || 'PCS').toUpperCase(), hsnCode: r.hsn, gstRate, defaultPrice, searchAliases: r.aliases ?? '' };
+      });
+      if (rows.length === 0) throw new Error('The file has no product rows.');
+      if (problems.length) throw new Error(`Nothing was imported. Fix these rows and import again. ${problems.slice(0, 5).join('. ')}${problems.length > 5 ? `. And ${problems.length - 5} more.` : '.'}`);
+      await importProducts(rows);
+      setError('');
+      setNotice(`Imported ${rows.length} products. Existing SKUs were updated.`);
+      reload();
+    } catch (err: any) {
+      setError(err.message);
     }
+  };
+
+  const downloadTemplate = () => downloadCsv('products-template', [
+    ['sku', 'name', 'brand', 'description', 'unit', 'hsn', 'gst_rate', 'price', 'aliases'],
+    ['SB-F405-V4', 'SpeedyBee F405 V4 Flight Controller', 'SpeedyBee', '30x30 stack', 'PCS', '85269190', 18, 4500, 'f405, fc stack'],
   ]);
 
-  const filtered = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.searchAliases.some(alias => alias.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
+    try {
+      await saveProduct({
+        id: editing?.id,
+        sku: f.sku.trim().toUpperCase(),
+        name: f.name.trim(),
+        brand: f.brand.trim(),
+        description: f.description.trim(),
+        unit: f.unit,
+        hsnCode: f.hsnCode,
+        gstRate: Number(f.gstRate),
+        defaultPrice: Number(f.defaultPrice),
+        searchAliases: f.searchAliases.trim(),
+      });
+      setEditing(undefined);
+      reload();
+    } catch (err: any) {
+      setError(/UNIQUE/.test(err.message) ? `SKU ${f.sku.toUpperCase()} is already in the catalogue. Use a different SKU.` : err.message);
+    }
+  };
 
   return (
-    <div className="space-y-6 animate-fade-in p-6">
-      {/* Top Banner Notice: Catalogue Protection */}
-      <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-950/20 flex items-start gap-3">
-        <Boxes className="h-5 w-5 text-blue-400 mt-0.5 shrink-0" />
-        <div className="text-xs space-y-0.5">
-          <div className="font-bold text-slate-200">Product Memory Active</div>
-          <p className="text-slate-400 leading-relaxed">
-            These saved products automatically populate invoice line items, HSN codes, and GST rates. Overriding a price on an individual invoice does not alter these saved catalogue rates.
-          </p>
-        </div>
-      </div>
-
-      {/* Action Controls */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+    <div className="page">
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative w-80">
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-ink-3 pointer-events-none" aria-hidden />
           <input
-            type="text"
-            placeholder="Search SKU, name, brand, or alias..."
+            type="search"
+            aria-label="Search products"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Search SKU, name, brand or alias…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="field pl-8"
           />
         </div>
-
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add Catalogue Product</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={downloadTemplate} className="btn btn-plain">CSV Template</button>
+          <button onClick={() => fileInput.current?.click()} className="btn">
+            <Upload className="h-4 w-4" aria-hidden />
+            Import CSV
+          </button>
+          <input ref={fileInput} type="file" accept=".csv,text/csv" onChange={handleImport} className="hidden" aria-label="Import products from CSV" />
+          <button onClick={() => openForm(null)} className="btn btn-primary">
+            <Plus className="h-4 w-4" aria-hidden />
+            Add Product
+          </button>
+        </div>
       </div>
 
-      {/* Products Table */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/80 backdrop-blur overflow-hidden">
-        <table className="w-full text-left text-xs">
+      <p aria-live="polite" className="text-success font-medium empty:hidden">{notice}</p>
+      {error && editing === undefined && <p role="alert" className="error">{error}</p>}
+
+      <div className="card overflow-hidden">
+        <table className="tbl">
           <thead>
-            <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400 font-semibold uppercase text-[10px]">
-              <th className="py-3 px-4">SKU Code</th>
-              <th className="py-3 px-4">Product Name & Brand</th>
-              <th className="py-3 px-4">Unit</th>
-              <th className="py-3 px-4">HSN/SAC</th>
-              <th className="py-3 px-4">GST Rate</th>
-              <th className="py-3 px-4 text-right">Default Selling Price</th>
-              <th className="py-3 px-4">Aliases</th>
-              <th className="py-3 px-4 text-center">Actions</th>
+            <tr>
+              <th>SKU</th>
+              <th>Product</th>
+              <th>Unit</th>
+              <th>HSN/SAC</th>
+              <th className="num">GST</th>
+              <th className="num">Price</th>
+              <th><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60">
-            {filtered.map((item) => (
-              <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                <td className="py-3 px-4 font-mono font-bold text-blue-400">{item.sku}</td>
-                <td className="py-3 px-4">
-                  <div className="font-semibold text-slate-200">{item.name}</div>
-                  <div className="text-[10px] text-slate-500">{item.brand} · {item.description}</div>
+          <tbody>
+            {products.length === 0 && (
+              <tr>
+                <td colSpan={7} className="empty">
+                  {searchTerm ? 'No products match this search.' : 'The catalogue is empty. Add your first product.'}
                 </td>
-                <td className="py-3 px-4 font-medium text-slate-300">{item.unit}</td>
-                <td className="py-3 px-4 font-mono text-slate-400">{item.hsnCode}</td>
-                <td className="py-3 px-4 font-mono text-slate-300">{item.gstRate}%</td>
-                <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
-                  {formatCurrencyINR(item.defaultPrice)}
-                </td>
-                <td className="py-3 px-4">
-                  <div className="flex flex-wrap gap-1">
-                    {item.searchAliases.map((a, i) => (
-                      <span key={i} className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 font-mono">
-                        {a}
-                      </span>
-                    ))}
+              </tr>
+            )}
+            {products.map((item) => (
+              <tr key={item.id}>
+                <td className="font-medium whitespace-nowrap">{item.sku}</td>
+                <td className="max-w-md">
+                  <div className="truncate">{item.name}</div>
+                  <div className="text-xs text-ink-2 truncate">
+                    {[item.brand, item.description, item.searchAliases].filter(Boolean).join(' · ')}
                   </div>
                 </td>
-                <td className="py-3 px-4 text-center">
-                  <button className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors">
-                    <Edit3 className="h-3.5 w-3.5" />
+                <td>{item.unit}</td>
+                <td className="tabular-nums">{item.hsnCode}</td>
+                <td className="num">{item.gstRate}%</td>
+                <td className="num font-medium">{formatCurrencyINR(item.defaultPrice)}</td>
+                <td className="num">
+                  <button onClick={() => openForm(item)} className="btn btn-icon" aria-label={`Edit ${item.sku}`}>
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 </td>
               </tr>
@@ -173,6 +157,55 @@ export const ProductsView: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      <p className="text-xs text-ink-2">
+        Changing a price on an invoice never changes the catalogue. Catalogue prices change only here or through “Save to catalogue”.
+      </p>
+
+      {editing !== undefined && (
+        <Modal title={editing ? 'Edit Product' : 'Add Product'} onClose={() => setEditing(undefined)}>
+          <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="label">SKU
+                <input name="sku" required autoFocus spellCheck={false} defaultValue={editing?.sku} placeholder="SB-F405-V4" className="field" />
+              </label>
+              <label className="label">Brand
+                <input name="brand" defaultValue={editing?.brand} placeholder="SpeedyBee" className="field" />
+              </label>
+              <label className="label col-span-2">Product Name
+                <input name="name" required defaultValue={editing?.name} placeholder="SpeedyBee F405 V4 Flight Controller" className="field" />
+              </label>
+              <label className="label col-span-2">Description
+                <input name="description" defaultValue={editing?.description} className="field" />
+              </label>
+              <label className="label">Unit
+                <select name="unit" defaultValue={editing?.unit ?? 'PCS'} className="field">
+                  {['PCS', 'SET', 'PAIR', 'BOX', 'MTR', 'KG'].map((u) => <option key={u}>{u}</option>)}
+                </select>
+              </label>
+              <label className="label">HSN/SAC (4–8 Digits)
+                <input name="hsnCode" required inputMode="numeric" pattern="[0-9]{4,8}" defaultValue={editing?.hsnCode} placeholder="85269190" className="field" />
+              </label>
+              <label className="label">GST Rate %
+                <select name="gstRate" defaultValue={editing?.gstRate ?? defaultGstRate} className="field">
+                  {[0, 5, 12, 18, 28].map((r) => <option key={r}>{r}</option>)}
+                </select>
+              </label>
+              <label className="label">Price Before GST (₹)
+                <input name="defaultPrice" type="number" required min="0" step="0.01" defaultValue={editing?.defaultPrice} className="field" />
+              </label>
+              <label className="label col-span-2">Search Aliases (Comma-Separated)
+                <input name="searchAliases" spellCheck={false} defaultValue={editing?.searchAliases} placeholder="f405, fc stack, 55a" className="field" />
+              </label>
+            </div>
+            {error && <p role="alert" className="error">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(undefined)} className="btn">Cancel</button>
+              <button type="submit" className="btn btn-primary">Save Product</button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 };

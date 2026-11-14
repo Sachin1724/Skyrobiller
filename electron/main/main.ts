@@ -1,10 +1,16 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeTheme } from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { machineIdSync } from 'node-machine-id';
-import { initDatabase, queryDb, executeDb, saveDatabase } from './db';
+import { execSync } from 'child_process';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+import { initDatabase, queryDb, executeDb, batchDb, saveDatabase, backupDatabase, restoreDatabase } from './db';
+import { buildMenu } from './menu';
 import type { DeviceInfo } from '../../src/types/electron';
+
+// The bundle is an ES module ("type": "module"), which has no __dirname
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Set app identity
 process.env.APP_ROOT = path.join(__dirname, '..');
@@ -15,66 +21,90 @@ process.env.VITE_PUBLIC = app.isPackaged ? RENDERER_DIST : path.join(process.env
 
 let win: BrowserWindow | null = null;
 
-const preload = path.join(__dirname, '../dist-electron/preload.js');
+const preload = path.join(__dirname, 'preload.cjs');
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+const iconPath = path.join(process.env.APP_ROOT, 'resources', 'icon.png'); // dev only; the installed app takes its icon from the exe
+
+// Window size and position are remembered between runs
+const windowStatePath = () => path.join(app.getPath('userData'), 'window-state.json');
+function readWindowState(): { bounds?: Electron.Rectangle; maximized?: boolean } {
+  try {
+    return JSON.parse(fs.readFileSync(windowStatePath(), 'utf8'));
+  } catch {
+    return {}; // first run, or unreadable file: use defaults
+  }
+}
 
 async function createWindow() {
+  const state = readWindowState();
   win = new BrowserWindow({
     title: 'Skyro Biller',
     width: 1360,
     height: 860,
+    ...state.bounds,
     minWidth: 1024,
     minHeight: 700,
-    frame: false, // Frameless for modern custom titlebar
-    backgroundColor: '#020617', // slate-950
-    show: false,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7', // matches --bg in src/index.css
+    show: true, // Make visible immediately on desktop
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
     },
   });
+  if (state.maximized) win.maximize();
 
-  win.on('ready-to-show', () => {
-    win?.show();
+  // Closing: remember the window, then let the renderer save any open draft before the window goes away
+  let readyToClose = false;
+  win.on('close', (e) => {
+    if (!win) return;
+    fs.writeFileSync(windowStatePath(), JSON.stringify({ bounds: win.getNormalBounds(), maximized: win.isMaximized() }));
+    if (readyToClose) return;
+    e.preventDefault();
+    readyToClose = true;
+    win.webContents.send('menu', 'flush-and-close');
+    setTimeout(() => win?.destroy(), 1500); // never hang on close if the renderer does not answer
   });
+  win.on('closed', () => { win = null; });
 
   if (devServerUrl) {
     win.loadURL(devServerUrl);
-  } else {
+  } else if (fs.existsSync(path.join(RENDERER_DIST, 'index.html'))) {
     win.loadFile(path.join(RENDERER_DIST, 'index.html'));
+  } else {
+    win.loadURL('http://localhost:5173');
   }
 }
 
-// Window control handlers
-ipcMain.handle('window:minimize', () => {
-  win?.minimize();
+ipcMain.handle('app:closeReady', () => {
+  win?.destroy();
 });
 
-ipcMain.handle('window:maximize', () => {
-  if (win?.isMaximized()) {
-    win.unmaximize();
-  } else {
-    win?.maximize();
-  }
-});
-
-ipcMain.handle('window:close', () => {
-  win?.close();
-});
-
-ipcMain.handle('window:isMaximized', () => {
-  return win?.isMaximized() ?? false;
+// Light, dark, or follow Windows. The CSS uses prefers-color-scheme, which follows this setting.
+ipcMain.handle('theme:set', (_event, theme: 'light' | 'dark' | 'system') => {
+  if (!['light', 'dark', 'system'].includes(theme)) return;
+  nativeTheme.themeSource = theme;
+  const menuItem = Menu.getApplicationMenu()?.getMenuItemById(`theme-${theme}`);
+  if (menuItem) menuItem.checked = true;
 });
 
 // Device Info handler
 ipcMain.handle('device:getInfo', (): DeviceInfo => {
   let mid = 'UNKNOWN-DEVICE';
   try {
-    mid = machineIdSync();
-  } catch (err) {
-    mid = os.hostname() + '-' + os.platform();
+    if (process.platform === 'win32') {
+      const output = execSync('REG QUERY HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography /v MachineGuid', { encoding: 'utf8' });
+      const match = output.match(/REG_SZ\s+([a-f0-9-]+)/i);
+      if (match && match[1]) {
+        mid = crypto.createHash('sha256').update(match[1].trim()).digest('hex');
+      }
+    } else {
+      mid = crypto.createHash('sha256').update(os.hostname() + os.platform() + os.arch()).digest('hex');
+    }
+  } catch {
+    mid = crypto.createHash('sha256').update(os.hostname() + '-' + os.platform()).digest('hex');
   }
 
   return {
@@ -95,34 +125,58 @@ ipcMain.handle('db:execute', (_event, { sql, params }) => {
   return executeDb(sql, params);
 });
 
+ipcMain.handle('db:batch', (_event, statements) => {
+  return batchDb(statements);
+});
+
+const backupFilters = [{ name: 'Skyro Biller Backup', extensions: ['db'] }];
+
+ipcMain.handle('db:backup', async () => {
+  const { filePath } = await dialog.showSaveDialog({
+    title: 'Save Backup',
+    defaultPath: `skyro-backup-${new Date().toISOString().slice(0, 10)}.db`,
+    filters: backupFilters,
+  });
+  if (!filePath) return { success: false, error: 'Cancelled' };
+  return { ...backupDatabase(filePath), filePath };
+});
+
+ipcMain.handle('db:restore', async () => {
+  const { filePaths } = await dialog.showOpenDialog({ title: 'Restore Backup', properties: ['openFile'], filters: backupFilters });
+  if (!filePaths[0]) return { success: false, error: 'Cancelled' };
+  const result = await restoreDatabase(filePaths[0]);
+  if (result.success) win?.reload(); // every screen re-reads from the restored database
+  return result;
+});
+
 ipcMain.handle('db:save', () => {
   const success = saveDatabase();
   return { success };
 });
 
+// Loads document HTML into a hidden window, ready to print or turn into a PDF.
+// Loaded from a temp file, not a data: URL: an embedded logo can push the page past Chromium's 2 MB URL limit.
+async function loadDocumentWindow(htmlContent: string): Promise<BrowserWindow> {
+  const printWin = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false } });
+  const htmlPath = path.join(app.getPath('temp'), `skyro-print-${Date.now()}.html`);
+  fs.writeFileSync(htmlPath, htmlContent);
+  try {
+    await printWin.loadFile(htmlPath);
+  } finally {
+    fs.rmSync(htmlPath, { force: true });
+  }
+  return printWin;
+}
+
 // PDF Generation
 ipcMain.handle('pdf:generate', async (_event, { htmlContent, title }) => {
   try {
-    const printWin = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-      },
-    });
-
-    await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-
+    const printWin = await loadDocumentWindow(htmlContent);
     const pdfBuffer = await printWin.webContents.printToPDF({
       pageSize: 'A4',
       printBackground: true,
-      margins: {
-        top: 0.4,
-        bottom: 0.4,
-        left: 0.4,
-        right: 0.4,
-      },
+      margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
     });
-
     printWin.close();
 
     const { filePath } = await dialog.showSaveDialog({
@@ -133,6 +187,7 @@ ipcMain.handle('pdf:generate', async (_event, { htmlContent, title }) => {
 
     if (filePath) {
       fs.writeFileSync(filePath, pdfBuffer);
+      shell.openPath(filePath); // opens in the default PDF viewer
       return { success: true, filePath };
     }
     return { success: false, error: 'Cancelled by user' };
@@ -141,20 +196,72 @@ ipcMain.handle('pdf:generate', async (_event, { htmlContent, title }) => {
   }
 });
 
-app.whenReady().then(async () => {
-  await initDatabase();
-  await createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
-});
-
-app.on('window-all-closed', () => {
-  saveDatabase();
-  if (process.platform !== 'darwin') {
-    app.quit();
+// Opens the Windows print dialog for a document
+ipcMain.handle('pdf:print', async (_event, { htmlContent }) => {
+  try {
+    const printWin = await loadDocumentWindow(htmlContent);
+    return await new Promise((resolve) => {
+      printWin.webContents.print({ printBackground: true }, (success, reason) => {
+        printWin.close();
+        resolve(success || reason === 'cancelled' ? { success: true } : { success: false, error: reason });
+      });
+    });
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 });
+
+function installMenu() {
+  Menu.setApplicationMenu(buildMenu({
+    send: (action) => win?.webContents.send('menu', action),
+    // ponytail: no update source chosen yet; wire electron-updater here once releases have a home
+    checkForUpdates: () => dialog.showMessageBox({
+      type: 'info',
+      title: 'Check for Updates',
+      message: `You have Skyro Biller ${app.getVersion()}.`,
+      detail: 'Automatic updates are not connected yet: a download location for new versions has not been chosen.',
+    }),
+    openDataFolder: () => shell.openPath(path.join(app.getPath('userData'), 'data')),
+    about: () => dialog.showMessageBox({
+      type: 'info',
+      title: 'About Skyro Biller',
+      message: `Skyro Biller ${app.getVersion()}`,
+      detail: `Billing and invoicing for UAV parts.\n\nData folder: ${path.join(app.getPath('userData'), 'data')}\nElectron ${process.versions.electron} · Chromium ${process.versions.chrome}`,
+    }),
+  }));
+}
+
+// Only one copy of the app may run: two would each hold their own copy of the database in memory and overwrite each other
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+
+  app.whenReady().then(async () => {
+    try {
+      await initDatabase();
+      installMenu();
+      await createWindow();
+    } catch (err: any) {
+      console.error('Startup error:', err);
+      dialog.showErrorBox('Skyro Biller could not start', err.message);
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    saveDatabase();
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+}

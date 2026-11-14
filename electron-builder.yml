@@ -3,7 +3,7 @@ productName: Skyro Biller
 copyright: Copyright © 2026 Skyro Biller Team
 directories:
   output: release
-  buildResources: build
+  buildResources: resources # holds icon.png; "build/" is git-ignored
 files:
   - dist
   - dist-electron
@@ -23,3 +23,4 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Skyro Biller
+

@@ -1,180 +1,308 @@
-import React, { useState } from 'react';
-import { Settings, Building, CreditCard, Laptop, ShieldCheck, Database, Save } from 'lucide-react';
-import { useSystemStore } from '../../store/useSystemStore';
+import React, { useRef, useState } from 'react';
+import { GSTIN_PATTERN, INDIAN_STATES, todayISO, addDaysISO } from '../../lib/utils';
+import { computeInvoice, type InvoiceLine } from '../../lib/gst';
+import { documentHtml, TEMPLATES, ACCENT_PRESETS, DENSITIES, COPY_LABELS, type TemplateId, type Density, type PrintableDocument } from '../../lib/pdf';
+import { useSystemStore, type Company, type Prefs } from '../../store/useSystemStore';
+import { useMenuAction, type AppModule } from '../../store/useNavStore';
+
+const MAX_IMAGE_BYTES = 300 * 1024;
+
+const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
+const DASHBOARD_CARDS: [string, string][] = [['month', 'Sales This Month'], ['year', 'Sales This Financial Year'], ['outstanding', 'Outstanding'], ['progress', 'In Progress']];
+const THEMES: [Prefs['theme'], string][] = [['light', 'Light'], ['dark', 'Dark'], ['system', 'Follow Windows']];
+
+const SAMPLE_ITEMS: InvoiceLine[] = [
+  { sku: 'SB-F405-V4', description: 'SpeedyBee F405 V4 Flight Controller', hsnCode: '85269190', unit: 'PCS', qty: 2, rate: 4500, discountPct: 0, gstRate: 18 },
+  { sku: 'HQ-5043', description: 'HQProp 5x4.3x3 Propeller Set', hsnCode: '88073000', unit: 'SET', qty: 10, rate: 280, discountPct: 5, gstRate: 18 },
+];
+
+// A made-up invoice so the template preview shows the real layout with the real company details
+const sampleDocument = (company: Company): PrintableDocument => ({
+  title: 'Tax Invoice',
+  number: `${company.invoicePrefix}/2026-27/0001`,
+  date: todayISO(),
+  secondDateLabel: 'Due Date',
+  secondDate: addDaysISO(todayISO(), 15),
+  company,
+  customer: {
+    id: 'sample', businessName: 'Sample Customer Pvt Ltd', contactPerson: 'A. Kumar', gstin: `${company.stateCode}AAACS0000A1Z5`, email: '',
+    phone: '98765 00000', billingAddress: '12 Industrial Estate, Sector B', stateCode: company.stateCode, stateName: company.stateName,
+    pincode: '751010', paymentTermsDays: 15,
+  },
+  items: SAMPLE_ITEMS,
+  totals: computeInvoice(SAMPLE_ITEMS, company.stateCode, company.stateCode),
+  notes: '',
+});
 
 export const SettingsView: React.FC = () => {
-  const { company, updateCompany, deviceInfo } = useSystemStore();
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const { company, updateCompany, deviceInfo, prefs, updatePrefs } = useSystemStore();
+  const designSection = useRef<HTMLElement>(null);
+  const customizeSection = useRef<HTMLElement>(null);
+  const [template, setTemplate] = useState<TemplateId>(company.template);
+  const [accent, setAccent] = useState(company.accent);
+  const [density, setDensity] = useState<Density>(company.density);
+  const [logo, setLogo] = useState(company.logo);
+  const [signature, setSignature] = useState(company.signature);
+  const [copies, setCopies] = useState(company.copies);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
-  const [formData, setFormData] = useState({ ...company });
+  const say = (ok: string, err = '') => { setMessage(ok); setError(err); };
 
-  const handleSave = (e: React.FormEvent) => {
+  // Menu bar: File > Back Up / Restore, Tools > Invoice Design / Customize
+  useMenuAction({
+    'backup': () => { handleBackup(); },
+    'restore': () => { handleRestore(); },
+    'invoice-design': () => designSection.current?.scrollIntoView({ block: 'start' }),
+    'customize': () => customizeSection.current?.scrollIntoView({ block: 'start' }),
+  });
+
+  const setPref = (change: Partial<Prefs>) => updatePrefs(change).catch((err) => say('', `Preference not saved: ${err.message}`));
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    updateCompany(formData);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2000);
+    const f = Object.fromEntries(new FormData(e.currentTarget)) as unknown as Company;
+    const stateCode = f.gstin.slice(0, 2);
+    try {
+      await updateCompany({
+        ...f, invoicePrefix: f.invoicePrefix.toUpperCase(), stateCode, stateName: INDIAN_STATES[stateCode] ?? '',
+        template, accent, density, logo, signature, copies,
+      });
+      say('Settings saved. New invoices use them; issued invoices keep their original company details.');
+    } catch (err: any) {
+      say('', `Not saved: ${err.message}`);
+    }
   };
 
+  // Reads a chosen image into a data URL and hands it to `set`
+  const pickImage = (set: (dataUrl: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      say('', `That image is ${Math.round(file.size / 1024)} KB. Choose a PNG or JPEG under 300 KB.`);
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => { set(String(reader.result)); say(''); };
+    reader.readAsDataURL(file);
+  };
+
+  const toggleCopy = (label: string, on: boolean) =>
+    setCopies((prev) => COPY_LABELS.filter((l) => (l === label ? on : prev.includes(l)))); // keeps the statutory order
+
+  const handleBackup = async () => {
+    const res = await window.electronAPI.dbBackup();
+    if (res.success) say(`Backup saved to ${res.filePath}`);
+    else if (res.error !== 'Cancelled') say('', `Backup failed: ${res.error}`);
+  };
+
+  const handleRestore = async () => {
+    if (!window.confirm('Restore replaces ALL current data on this computer with the backup file. The current data is kept beside the database as “.before-restore”. Continue?')) return;
+    const res = await window.electronAPI.dbRestore(); // on success the window reloads
+    if (!res.success && res.error !== 'Cancelled') say('', res.error ?? 'Restore failed');
+  };
+
+  const text = (name: keyof Company, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}, span = '') => (
+    <label className={`label ${span}`}>{label}
+      <input name={name} defaultValue={company[name] as string} className="field" {...props} />
+    </label>
+  );
+
+  const imagePicker = (label: string, value: string, set: (v: string) => void) => (
+    <div className="flex items-end gap-3">
+      {value && <img src={value} alt={`Current ${label.toLowerCase()}`} width={96} height={48} className="h-12 w-24 object-contain rounded-lg border border-line bg-white" />}
+      <label className="label">{label} (PNG or JPEG, Under 300 KB)
+        <input type="file" accept="image/png,image/jpeg" onChange={pickImage(set)} className="text-xs text-ink file:btn file:mr-2 file:border-0" />
+      </label>
+      {value && <button type="button" onClick={() => set('')} className="btn btn-danger">Remove</button>}
+    </div>
+  );
+
+  // Preview shows unsaved choices (template, colour, density, images, first copy marking) with the saved company details
+  const previewHtml = documentHtml(sampleDocument(company), { template, accent, density, logo, signature, copies: copies.slice(0, 1) });
+
   return (
-    <div className="space-y-6 animate-fade-in p-6 max-w-5xl">
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Company Profile & GSTIN */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/80 backdrop-blur p-5 space-y-4">
-          <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Building className="h-4 w-4 text-blue-400" />
-            <h2 className="text-sm font-bold text-slate-100">Company Identity & Statutory GST</h2>
-          </div>
+    <div className="page">
+      <p aria-live="polite" className="text-success font-medium empty:hidden">{message}</p>
+      {error && <p role="alert" className="error">{error}</p>}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">Legal Registered Name</label>
-              <input
-                type="text"
-                value={formData.legalName}
-                onChange={(e) => setFormData({ ...formData, legalName: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
-              />
+      {/* key: remount with fresh defaults once the saved profile has loaded */}
+      <form key={company.legalName + company.gstin} onSubmit={handleSubmit} autoComplete="off" className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-5 items-start">
+        <div className="space-y-5 min-w-0">
+          <section className="card p-5 space-y-4">
+            <h2 className="text-[15px] font-semibold tracking-tight">Company Profile</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {text('legalName', 'Legal Name', { required: true })}
+              {text('tradeName', 'Trade Name', { required: true })}
+              {text('gstin', 'GSTIN (Sets the Home State)', { required: true, pattern: GSTIN_PATTERN, spellCheck: false, title: '15-character GSTIN, for example 21AAACS1234D1Z5' })}
+              {text('invoicePrefix', 'Invoice Number Prefix', { required: true, pattern: '[A-Za-z0-9]{1,3}', spellCheck: false, title: '1 to 3 letters or digits. GST allows at most 16 characters in the whole invoice number.' })}
+              {text('address', 'Address', { required: true }, 'col-span-2')}
+              {text('phone', 'Phone', { type: 'tel' })}
+              {text('email', 'Email', { type: 'email', spellCheck: false })}
             </div>
+            {imagePicker('Company Logo', logo, setLogo)}
+            <p className="text-xs text-ink-2">The logo appears in the sidebar and on every invoice, quotation and credit note.</p>
+          </section>
 
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">Trade Name / Brand</label>
-              <input
-                type="text"
-                value={formData.tradeName}
-                onChange={(e) => setFormData({ ...formData, tradeName: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
-              />
+          <section className="card p-5 space-y-4">
+            <h2 className="text-[15px] font-semibold tracking-tight">Bank Details (Printed on Invoices)</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {text('bankName', 'Bank Name')}
+              {text('accountNumber', 'Account Number', { inputMode: 'numeric', spellCheck: false })}
+              {text('ifscCode', 'IFSC Code', { spellCheck: false })}
+              {text('upiId', 'UPI ID (Adds a Scan-to-Pay QR to Invoices)', { spellCheck: false })}
+              <label className="label col-span-2">Terms &amp; Conditions (Printed on Invoices and Quotations)
+                <textarea name="terms" rows={3} defaultValue={company.terms} className="field" />
+              </label>
             </div>
+          </section>
 
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">GSTIN (15 Digits)</label>
-              <input
-                type="text"
-                value={formData.gstin}
-                onChange={(e) => setFormData({ ...formData, gstin: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono text-blue-400 font-bold focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">State Code & Name</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={formData.stateCode}
-                  onChange={(e) => setFormData({ ...formData, stateCode: e.target.value })}
-                  className="w-16 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono text-slate-200 text-center"
-                />
-                <input
-                  type="text"
-                  value={formData.stateName}
-                  onChange={(e) => setFormData({ ...formData, stateName: e.target.value })}
-                  className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-                />
+          <section ref={designSection} className="card p-5 space-y-4 scroll-mt-20">
+            <h2 className="text-[15px] font-semibold tracking-tight">Invoice Design</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="label">Template
+                <select value={template} onChange={(e) => setTemplate(e.target.value as TemplateId)} className="field">
+                  {(Object.keys(TEMPLATES) as TemplateId[]).map((id) => <option key={id} value={id}>{TEMPLATES[id]}</option>)}
+                </select>
+              </label>
+              <div className="label">Text Size &amp; Spacing
+                <div className="segmented self-start" role="group" aria-label="Text size and spacing">
+                  {(Object.keys(DENSITIES) as Density[]).map((id) => (
+                    <button type="button" key={id} aria-pressed={density === id} onClick={() => setDensity(id)}>{DENSITIES[id]}</button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-slate-400 mb-1 font-medium">Registered Address</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Banking & UPI */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/80 backdrop-blur p-5 space-y-4">
-          <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <CreditCard className="h-4 w-4 text-emerald-400" />
-            <h2 className="text-sm font-bold text-slate-100">Bank Details & Invoice UPI QR Code</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">Bank Name</label>
-              <input
-                type="text"
-                value={formData.bankName}
-                onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">Account Number</label>
-              <input
-                type="text"
-                value={formData.accountNumber}
-                onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono text-slate-200"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">IFSC Code</label>
-              <input
-                type="text"
-                value={formData.ifscCode}
-                onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono text-slate-200"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1 font-medium">UPI VPA (Generates Dynamic QR on Invoices)</label>
-              <input
-                type="text"
-                value={formData.upiId}
-                onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg font-mono text-emerald-400 font-bold"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Device Authorization Status */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/80 backdrop-blur p-5 space-y-4">
-          <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Laptop className="h-4 w-4 text-purple-400" />
-            <h2 className="text-sm font-bold text-slate-100">Machine Identity & Device Authorization</h2>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 rounded-lg border border-slate-800 bg-slate-950/60 text-xs gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-200">{deviceInfo?.hostname || 'Host PC'}</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Approved & Authorized
-                </span>
-              </div>
-              <div className="text-[11px] font-mono text-slate-500 mt-1">
-                Hardware Fingerprint: {deviceInfo?.machineId || 'FINGERPRINT-DEV-LOCAL-001'}
+            <div className="label">Accent Colour
+              <div className="flex flex-wrap items-center gap-2">
+                {Object.entries(ACCENT_PRESETS).map(([name, value]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    onClick={() => setAccent(value)}
+                    aria-label={name}
+                    aria-pressed={accent === value}
+                    title={name}
+                    style={{ backgroundColor: value }}
+                    className="h-6 w-6 rounded border border-line aria-pressed:ring-2 aria-pressed:ring-accent aria-pressed:ring-offset-2 aria-pressed:ring-offset-surface"
+                  />
+                ))}
+                <input type="color" aria-label="Custom accent colour" value={accent} onChange={(e) => setAccent(e.target.value)} className="h-7 w-10 rounded bg-transparent" />
               </div>
             </div>
+
+            {imagePicker('Signature', signature, setSignature)}
+
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-medium text-ink-2 mb-1">Copies in Each Invoice PDF (None Ticked = One Unmarked Copy)</legend>
+              {COPY_LABELS.map((l) => (
+                <label key={l} className="flex items-center gap-2">
+                  <input type="checkbox" checked={copies.includes(l)} onChange={(e) => toggleCopy(l, e.target.checked)} className="accent-accent" />
+                  {l}
+                </label>
+              ))}
+            </fieldset>
+          </section>
+
+          <div className="flex justify-end">
+            <button type="submit" className="btn btn-primary">Save Settings</button>
           </div>
         </div>
 
-        {/* Save Bar */}
-        <div className="flex items-center justify-end gap-3 pt-2">
-          {savedSuccess && (
-            <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
-              <ShieldCheck className="h-4 w-4" />
-              Settings saved successfully!
-            </span>
-          )}
-          <button
-            type="submit"
-            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Save className="h-4 w-4" />
-            <span>Save Configuration</span>
-          </button>
+        {/* A4 page (794 x 1123 px) scaled to 55%. Sticky so it stays in view while scrolling to the design controls */}
+        <div className="space-y-2 xl:sticky xl:top-20">
+          <h2 className="text-xs font-medium text-ink-2">Preview (Sample Data)</h2>
+          <div className="w-[437px] h-[618px] overflow-hidden rounded-xl border border-line bg-white">
+            <iframe
+              title="Invoice template preview"
+              sandbox=""
+              srcDoc={previewHtml}
+              className="w-[794px] h-[1123px] origin-top-left scale-[0.55] pointer-events-none"
+            />
+          </div>
         </div>
       </form>
+
+      {/* App preferences: applied and saved the moment they change */}
+      <section ref={customizeSection} className="card p-5 space-y-4 max-w-3xl scroll-mt-20">
+        <h2 className="text-[15px] font-semibold tracking-tight">Customize</h2>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="label">Theme
+            <div className="segmented self-start" role="group" aria-label="Theme">
+              {THEMES.map(([id, name]) => (
+                <button type="button" key={id} aria-pressed={prefs.theme === id} onClick={() => setPref({ theme: id })}>{name}</button>
+              ))}
+            </div>
+          </div>
+          <div className="label">Table Rows
+            <div className="segmented self-start" role="group" aria-label="Table row height">
+              <button type="button" aria-pressed={prefs.density === 'comfortable'} onClick={() => setPref({ density: 'comfortable' })}>Comfortable</button>
+              <button type="button" aria-pressed={prefs.density === 'compact'} onClick={() => setPref({ density: 'compact' })}>Compact</button>
+            </div>
+          </div>
+          <div className="label col-span-2">App Accent Colour
+            <div className="flex flex-wrap items-center gap-2">
+              {Object.entries(ACCENT_PRESETS).map(([name, value]) => {
+                const selected = prefs.accent === value || (!prefs.accent && name === 'Blue');
+                return (
+                  <button
+                    type="button"
+                    key={value}
+                    onClick={() => setPref({ accent: name === 'Blue' ? '' : value })}
+                    aria-label={name}
+                    aria-pressed={selected}
+                    title={name}
+                    style={{ backgroundColor: value }}
+                    className="h-6 w-6 rounded border border-line aria-pressed:ring-2 aria-pressed:ring-accent aria-pressed:ring-offset-2 aria-pressed:ring-offset-surface"
+                  />
+                );
+              })}
+              <input type="color" aria-label="Custom app accent colour" value={prefs.accent || '#0071e3'} onChange={(e) => setPref({ accent: e.target.value })} className="h-7 w-10 rounded bg-transparent" />
+            </div>
+          </div>
+          <label className="label">Screen Shown at Start-Up
+            <select value={prefs.startScreen} onChange={(e) => setPref({ startScreen: e.target.value as AppModule })} className="field">
+              {START_SCREENS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </label>
+          <label className="label">Default GST Rate for New Items
+            <select value={prefs.defaultGstRate} onChange={(e) => setPref({ defaultGstRate: Number(e.target.value) })} className="field">
+              {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
+            </select>
+          </label>
+          <label className="label">Default Payment Terms for New Customers (Days)
+            <input type="number" min="0" step="1" value={prefs.defaultTermsDays} onChange={(e) => setPref({ defaultTermsDays: Math.max(0, Number(e.target.value) || 0) })} className="field" />
+          </label>
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-medium text-ink-2 mb-1">Dashboard Cards</legend>
+            {DASHBOARD_CARDS.map(([key, name]) => (
+              <label key={key} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={!prefs.hiddenCards.includes(key)}
+                  onChange={(e) => setPref({ hiddenCards: e.target.checked ? prefs.hiddenCards.filter((k) => k !== key) : [...prefs.hiddenCards, key] })}
+                  className="accent-accent"
+                />
+                {name}
+              </label>
+            ))}
+          </fieldset>
+        </div>
+        <p className="text-xs text-ink-2">Text size: use View &gt; Zoom In and Zoom Out (Ctrl + and Ctrl -).</p>
+      </section>
+
+      <section className="card p-5 space-y-3 max-w-3xl">
+        <h2 className="text-[15px] font-semibold tracking-tight">Backup</h2>
+        <p className="text-ink-2">
+          All data lives in one database file on this computer{deviceInfo ? ` (${deviceInfo.hostname})` : ''}. Save a backup to a USB drive or cloud folder regularly.
+        </p>
+        <div className="flex gap-2">
+          <button onClick={handleBackup} className="btn btn-primary">Save Backup…</button>
+          <button onClick={handleRestore} className="btn btn-danger">Restore From Backup…</button>
+        </div>
+      </section>
     </div>
   );
 };

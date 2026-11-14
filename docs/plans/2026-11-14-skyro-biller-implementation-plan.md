@@ -2,6 +2,49 @@
 
 > **Execution Directive:** This document serves as the master engineering implementation blueprint for **Skyro Biller**, a multi-user, offline-capable Windows billing application engineered specifically for a UAV parts enterprise under Indian GST regulations.
 
+> **Revision 2 (2026-11-14) — supersedes any conflicting text below.**
+> 1. **Local DB is `sql.js` (WASM SQLite), not `better-sqlite3`.** No native build step on Windows. The DB lives in memory and is written to disk after every mutation with write-to-temp-then-rename, so a crash cannot truncate the file. Revisit `better-sqlite3` + WAL only if the whole-file save becomes slow (tens of MB).
+> 2. **No FTS5.** The stock `sql.js` build does not include it. Search is a multi-word `LIKE` over SKU, name, brand and aliases (every typed word must match, any order). Adequate to roughly 50k rows; a custom FTS5 build is the upgrade path.
+> 3. **No migration runner yet.** The schema is `CREATE ... IF NOT EXISTS` and runs on every start. Add `PRAGMA user_version` migrations the first time a column must change.
+> 4. **Forms use native HTML validation** (`required`, `pattern`, `min`). React Hook Form + Zod stay installed for the first form that needs cross-field rules beyond that.
+> 5. **Money maths runs in integer paise** (`src/lib/gst.ts`); CGST and SGST are each rounded separately so they are always equal.
+> 6. **Draft IDs are `D-XXXXXXXX`** (random, collision-safe across PCs without a device prefix). Autosave is debounced 600 ms after the last edit, not a 5-second timer.
+> 7. **Catalogue and customer rows created before Phase 5 are not queued in `sync_outbox`.** Phase 5 starts with a one-time full push of local rows by `updated_at`.
+> 8. **Status:** Phase 1 done. Phase 2 done (product memory, customer memory, search, autocomplete). Phase 3 partly done: GST engine, invoice editor, autosaved drafts, park/resume. Remaining in Phase 3: quotations (Task 3.3) and PDF templates (Task 3.4).
+> 9. **Checks:** `npm run check` runs `scripts/gst.check.ts` (GST maths) and `scripts/db.check.ts` (catalogue, customer and draft SQL against the real schema).
+
+> **Revision 3 (2026-11-14) — local-first build order. Supersedes Revision 2 item 8 and the phase order below.**
+> 1. **Order changed:** the whole product is built and usable on one computer first. Supabase (auth, device approval, sync, cloud numbering) and Google Sheets are added last.
+> 2. **Invoices are issued locally.** `local_invoices` stores full snapshots; the number `PREFIX/2026-27/0001` is allocated inside the same INSERT, consecutive per financial year. The invoice reuses the draft id as primary key, so a retry cannot create a duplicate. Database triggers block edits and deletes of issued invoices; cancelling only changes status. When the cloud is connected, that one INSERT moves into the Postgres RPC.
+> 3. **Until the cloud is connected, issue invoices from one computer only.** Two computers would each start their own number series.
+> 4. **Payments** are stored in `local_payments`; a trigger rejects overpayment and payments on cancelled invoices. Paid / partly paid / unpaid is derived, not stored.
+> 5. **Quotations** are rows in `local_drafts` with `kind = 'quotation'`, a validity date and a status (draft, sent, accepted, declined, converted — SolidInvoice's lifecycle). Converting copies the quotation into a new invoice draft.
+> 6. **PDF:** one shared HTML body with three looks chosen in Settings (Minimal, Classic, Modern; adapted from Invoify layouts) in `src/lib/pdf.ts`, rendered by `printToPDF`. Includes logo, HSN-wise tax summary, amount in words, UPI scan-to-pay QR (`qrcode` package) and copy markings (Original / Duplicate / Triplicate, one full copy each). Template, logo and copies are current settings, not part of the invoice snapshot. Settings shows a live preview.
+> 7. **Reports** are computed from issued invoices in the renderer and exported as CSV. Google Sheets sync comes with the cloud phase.
+> 8. **Backup and restore** of the database file are in Settings.
+> 9. **Interface:** semantic colour tokens in `src/index.css` (light and dark follow Windows), system font, component classes (`.btn`, `.field`, `.card`, `.tbl`, `.badge`, `.sheet`), native `<dialog>` for modals. shadcn/ui is not used.
+> 10. **Launch fixes:** the app could not start before this revision (CommonJS import of `node-machine-id`, missing `__dirname` in the ES module bundle, preload built as ESM). The preload is now built as `preload.cjs`.
+> 11. **Not built yet:** employee roles and everything cloud.
+
+> **Revision 4 (2026-11-14) — features taken from the reference projects.**
+> 1. **From Invoify:** all thirteen layouts of its template gallery as PDF looks (Minimal, Classic, Modern, Bordered, Bold Header, Corner, Statement, Two-Tone, Letterhead, Left Rail, Sidebar, Column, Compact), its accent presets plus a custom colour, its density setting, and a signature image. One shared HTML body in `src/lib/pdf.ts`; each look is CSS only. This supersedes "three looks" in Revision 3 item 6.
+> 2. **From InvoicePlane:** credit notes (its credit invoices) with their own `CN/2026-27/0001` series in `local_credit_notes`, immutable, capped by trigger at the invoice value, and counted in outstanding; copy an invoice into a new draft; in-app document view; CSV import for products (updates an existing SKU) and customers (skips an existing GSTIN); aging report.
+> 3. **From SolidInvoice:** quotation lifecycle (already in Revision 3) and customer billing history.
+> 4. **Product memory learns from billing:** a one-off custom item can be typed into an invoice and saved to the catalogue from its row.
+> 5. **Company logo** is shown in the sidebar and printed on every document.
+> 6. **Deliberately left out:** recurring invoices, emailing PDFs, online payment gateways, multi-currency, translations, client portal, REST API, custom fields, projects and tasks. They need a server or fall outside the product brief (section 14); signature drawing/typing is replaced by an image upload.
+> 7. **Known limits:** Sales and GST reports show invoices as issued; credit notes are a separate report to subtract. Returned quantity per line is not tracked across several credit notes, only the total.
+
+> **Revision 5 (2026-11-14) — Windows program conventions.**
+> 1. **Standard Windows frame and menu bar** replace the custom title bar. The menu is defined in `electron/main/menu.ts`; each item sends an action name to the renderer (`src/App.tsx`), and the screen that owns the command carries it out through `useMenuAction`.
+> 2. **Menus:** File (new documents, Save, Save Copy, Save As PDF, Print, Import, Export, Back Up, Restore, Exit), Edit (clipboard, Find), View (screens on Ctrl+1 to Ctrl+8, Parked, Theme, Zoom, Full Screen), Tools (Settings, Invoice Design, Customize), Help (Help on F1, Keyboard Shortcuts, Check for Updates, Open Data Folder, About).
+> 3. **Save semantics:** the app autosaves, so Save writes the open draft immediately, Save Copy duplicates it, Save As PDF and Print act on the open quotation or the invoice or credit note being viewed. Invoice drafts cannot be printed as tax invoices. Closing the window saves an open draft first.
+> 4. **Theme:** Light, Dark or Follow Windows via `nativeTheme.themeSource`, remembered. **Customize** (Settings): app accent colour, table row height, start-up screen, default GST rate, default payment terms, dashboard cards. Stored under the `prefs` key in `local_settings`.
+> 5. **Also:** window size and position remembered, single running copy enforced, app icon in `resources/icon.png` (placeholder artwork), in-app Help screen, direct printing through the Windows print dialog.
+> 6. **Check for Updates** shows the installed version only. Automatic updates wait on a decision about where releases are hosted and whether the installer is code-signed.
+> 7. **Installer:** `npm run build:win` produces a setup program and a portable exe in `release/`. The packaged app was launched and exercised; the setup program itself has not been run on a clean computer.
+> 8. **Reports** are spreadsheet-style tables with CSV and multi-sheet Excel export, including GSTR-1 style sheets.
+
 ---
 
 ## 1. Executive Summary & Architectural Overview
@@ -81,7 +124,7 @@ flowchart TD
 | **Frontend Framework** | React 18+ / Vite / TypeScript | Rapid component rendering, strict typings, instant HMR, high performance. |
 | **Component System** | Tailwind CSS v4 + shadcn/ui (Radix UI) | Clean, keyboard-accessible, enterprise-grade dark/light UI adapted from modern Invoify patterns. |
 | **State & Forms** | Zustand + TanStack Query + React Hook Form + Zod | Separation of local offline state, async server sync caching, and strict GST tax form validation. |
-| **Local Cache DB** | `better-sqlite3` with FTS5 | Sub-millisecond autocomplete for 100,000+ products/customers directly in the Electron main process via synchronous native bindings. |
+| **Local Cache DB** | `sql.js` (WASM SQLite) | No native compilation on Windows. In-memory DB in the Electron main process, persisted with atomic write-then-rename after each mutation. Multi-word `LIKE` search (see Revision 2). |
 | **Cloud Source of Truth** | Supabase PostgreSQL 16+ | Enterprise relational ACID transactions, Row-Level Security (RLS), Realtime WebSocket updates, pg_cron. |
 | **PDF Generation** | Electron `webContents.printToPDF` | Pixel-perfect A4 invoice output adhering to Section 31 of CGST rules without external heavy binary dependencies. |
 | **External Reporting** | Google Sheets API v4 | Continuous background sync of sales summaries for executive oversight without granting direct DB access. |
@@ -422,7 +465,7 @@ END;
 $$;
 ```
 
-### 4.3 Local Client SQLite Schema (`better-sqlite3`)
+### 4.3 Local Client SQLite Schema (`sql.js`; the `fts_*` tables below are deferred, see Revision 2)
 
 The local database powers lightning-fast searches, drafts, and the reliable offline outbox:
 
@@ -584,6 +627,8 @@ flowchart TD
   - Status indicators: Online/Offline connectivity chip, Sync status beacon, Active device badge.
 
 ### Phase 2: Local Storage Engine & Memory Systems (Product & Customer)
+**Status: done, as amended by Revision 2** (`sql.js`, `LIKE` search, no migration runner). The tasks below are the original text.
+
 **Objective:** Implement native SQLite local caching with FTS5 full-text indexing for instant autocomplete (< 10ms).
 
 - **Task 2.1:** Native SQLite Integration in Main Process

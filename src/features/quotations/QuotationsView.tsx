@@ -1,145 +1,107 @@
-import React, { useState } from 'react';
-import { Plus, Search, FileCheck2, ArrowRight, Printer, Download, Clock } from 'lucide-react';
-import { formatCurrencyINR, formatDate } from '../../lib/utils';
-import { useNavStore } from '../../store/useNavStore';
+import React, { useEffect, useState } from 'react';
+import { Plus, Pencil, Trash2, ArrowRightCircle } from 'lucide-react';
+import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
+import { useNavStore, useMenuAction } from '../../store/useNavStore';
+import { listDrafts, saveDraft, deleteDraft, setQuotationStatus, newDraftId, type Draft, type QuotationStatus } from '../../lib/db';
+import { InvoiceEditor } from '../invoices/InvoiceEditor';
 
-export interface QuotationItem {
-  id: string;
-  quotationNumber: string;
-  customerName: string;
-  customerGstin: string;
-  date: string;
-  validUntil: string;
-  totalAmount: number;
-  status: 'draft' | 'sent' | 'accepted' | 'converted';
-  itemsCount: number;
-}
+// Lifecycle follows SolidInvoice's quote states (references/solidinvoice): draft, sent, accepted, declined, then converted
+const STATUSES: QuotationStatus[] = ['draft', 'sent', 'accepted', 'declined'];
+const label = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 export const QuotationsView: React.FC = () => {
-  const { setCurrentModule } = useNavStore();
-  const [searchTerm, setSearchTerm] = useState('');
+  const { setCurrentModule, setActiveInvoiceDraftId } = useNavStore();
+  const [quotations, setQuotations] = useState<Draft[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
-  const [quotations] = useState<QuotationItem[]>([
-    {
-      id: '1',
-      quotationNumber: 'QT-2026-0012',
-      customerName: 'Bharat Drone Defense Solutions',
-      customerGstin: '07AAACB4421M1ZX',
-      date: '2026-11-10',
-      validUntil: '2026-11-25',
-      totalAmount: 198000.00,
-      status: 'accepted',
-      itemsCount: 6
-    },
-    {
-      id: '2',
-      quotationNumber: 'QT-2026-0011',
-      customerName: 'Garuda Tech Aerospace',
-      customerGstin: '29AAACG8412F1Z8',
-      date: '2026-11-08',
-      validUntil: '2026-11-23',
-      totalAmount: 48500.00,
-      status: 'sent',
-      itemsCount: 3
-    },
-    {
-      id: '3',
-      quotationNumber: 'QT-2026-0010',
-      customerName: 'AeroDynamics India',
-      customerGstin: '21AAACA9999P1Z2',
-      date: '2026-11-05',
-      validUntil: '2026-11-20',
-      totalAmount: 112000.00,
-      status: 'converted',
-      itemsCount: 8
+  const reload = () => listDrafts('quotation').then(setQuotations).catch((e) => setError(e.message));
+  useEffect(() => { if (!editingId) reload(); }, [editingId]);
+  useMenuAction({ 'new-quotation': () => setEditingId(newDraftId('quotation')) });
+
+  if (editingId) {
+    return <InvoiceEditor key={editingId} draftId={editingId} kind="quotation" onClose={() => setEditingId(null)} />;
+  }
+
+  const run = (action: Promise<unknown>) => action.then(reload).catch((e) => setError(e.message));
+
+  // Copies the quotation into a fresh invoice draft and opens it; the quotation is kept and marked converted
+  const handleConvert = async (q: Draft) => {
+    const draftId = newDraftId('invoice');
+    try {
+      await saveDraft({ ...q, draftId, kind: 'invoice', isParked: false, validUntil: '', status: 'draft' });
+      await setQuotationStatus(q.draftId, 'converted');
+      setActiveInvoiceDraftId(draftId);
+      setCurrentModule('invoices');
+    } catch (e: any) {
+      setError(e.message);
     }
-  ]);
-
-  const handleConvertToInvoice = (quote: QuotationItem) => {
-    alert(`Quotation ${quote.quotationNumber} will be converted into a new Tax Invoice draft with prefilled items and customer data.`);
-    setCurrentModule('invoices');
   };
 
-  return (
-    <div className="space-y-6 animate-fade-in p-6">
-      {/* Action Controls */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search quotation number or customer..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-          />
-        </div>
+  const handleDelete = (q: Draft) => {
+    if (window.confirm(`Delete quotation ${q.draftId}? This cannot be undone.`)) run(deleteDraft(q.draftId));
+  };
 
-        <button
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Prepare Price Quotation</span>
+  const today = todayISO();
+
+  return (
+    <div className="page">
+      <div className="flex justify-end">
+        <button onClick={() => setEditingId(newDraftId('quotation'))} className="btn btn-primary">
+          <Plus className="h-4 w-4" aria-hidden />
+          New Quotation
         </button>
       </div>
 
-      {/* Quotations Table */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/80 backdrop-blur overflow-hidden">
-        <table className="w-full text-left text-xs">
+      {error && <p role="alert" className="error">{error}</p>}
+
+      <div className="card overflow-hidden">
+        <table className="tbl">
           <thead>
-            <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400 font-semibold uppercase text-[10px]">
-              <th className="py-3 px-4">Quote No</th>
-              <th className="py-3 px-4">Customer Name</th>
-              <th className="py-3 px-4">Date Issued</th>
-              <th className="py-3 px-4">Validity</th>
-              <th className="py-3 px-4 text-right">Total Quoted</th>
-              <th className="py-3 px-4 text-center">Status</th>
-              <th className="py-3 px-4 text-center">Actions</th>
+            <tr>
+              <th>Quotation</th>
+              <th>Customer</th>
+              <th>Valid Until</th>
+              <th className="num">Total</th>
+              <th>Status</th>
+              <th><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60">
+          <tbody>
+            {quotations.length === 0 && <tr><td colSpan={6} className="empty">No quotations yet. Create your first quotation.</td></tr>}
             {quotations.map((q) => (
-              <tr key={q.id} className="hover:bg-slate-800/40 transition-colors">
-                <td className="py-3 px-4 font-mono font-bold text-purple-400">{q.quotationNumber}</td>
-                <td className="py-3 px-4">
-                  <div className="font-semibold text-slate-200">{q.customerName}</div>
-                  <div className="text-[10px] text-slate-500">{q.itemsCount} Quoted Line Items</div>
+              <tr key={q.draftId}>
+                <td className="font-medium tabular-nums whitespace-nowrap">{q.draftId}</td>
+                <td className="max-w-xs"><div className="truncate">{q.customer?.businessName ?? 'No customer yet'}</div></td>
+                <td className="whitespace-nowrap">
+                  {q.validUntil && formatDate(q.validUntil)}{' '}
+                  {q.validUntil && q.validUntil < today && q.status !== 'converted' && <span className="badge badge-danger">Expired</span>}
                 </td>
-                <td className="py-3 px-4 text-slate-400">{formatDate(q.date)}</td>
-                <td className="py-3 px-4 text-slate-300 flex items-center gap-1 mt-2">
-                  <Clock className="h-3 w-3 text-slate-500" />
-                  <span>Valid until {formatDate(q.validUntil)}</span>
+                <td className="num font-medium">{formatCurrencyINR(q.total)}</td>
+                <td>
+                  {q.status === 'converted' ? (
+                    <span className="badge badge-success">Converted</span>
+                  ) : (
+                    <select
+                      aria-label={`Status of ${q.draftId}`}
+                      value={q.status}
+                      onChange={(e) => run(setQuotationStatus(q.draftId, e.target.value as QuotationStatus))}
+                      className="field w-28"
+                    >
+                      {STATUSES.map((s) => <option key={s} value={s}>{label(s)}</option>)}
+                    </select>
+                  )}
                 </td>
-                <td className="py-3 px-4 text-right font-mono font-bold text-slate-100">
-                  {formatCurrencyINR(q.totalAmount)}
-                </td>
-                <td className="py-3 px-4 text-center">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border ${
-                    q.status === 'accepted'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : q.status === 'converted'
-                      ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                      : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-                  }`}>
-                    {q.status}
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    {q.status !== 'converted' && (
-                      <button
-                        onClick={() => handleConvertToInvoice(q)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 font-semibold text-[11px] transition-colors"
-                        title="1-Click Convert to Invoice"
-                      >
-                        <span>Convert to Invoice</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </button>
-                    )}
-                    <button className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200">
-                      <Printer className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                <td className="num">
+                  <button onClick={() => handleConvert(q)} disabled={!q.customer || q.items.length === 0} className="btn btn-icon" aria-label={`Convert ${q.draftId} to invoice`} title="Convert to invoice">
+                    <ArrowRightCircle className="h-4 w-4" aria-hidden />
+                  </button>
+                  <button onClick={() => setEditingId(q.draftId)} className="btn btn-icon" aria-label={`Edit ${q.draftId}`} title="Edit">
+                    <Pencil className="h-4 w-4" aria-hidden />
+                  </button>
+                  <button onClick={() => handleDelete(q)} className="btn btn-icon btn-danger" aria-label={`Delete ${q.draftId}`} title="Delete">
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                  </button>
                 </td>
               </tr>
             ))}

@@ -4,7 +4,7 @@
 **Version:** 1.0.0-alpha  
 **Platform:** Windows 10/11 Desktop (Offline-first, Multi-user)  
 **Target Domain:** UAV Parts & Electronics Business (Indian GST Compliant)  
-**Repository Working Directory:** `d:\Client\Dinesh Sadangi\Skyrobiller`  
+**Repository:** https://github.com/Sachin1724/Skyrobiller  
 **Last Updated:** 2026-11-14  
 
 ---
@@ -33,6 +33,16 @@ Key business and engineering requirements:
 | **Phase 6** | **Atomic Invoice Integrity & Payments** (PostgreSQL RPC, Consecutive Numbers, Payments) | ⚪ Queued | 0% |
 | **Phase 7** | **Google Sheets Reporting & Backup Engine** (Service Account Sync, SQLite Snapshotting) | ⚪ Queued | 0% |
 | **Phase 8** | **Production Release Engineering** (NSIS Windows Installer, Auto-Updates, Stress Testing) | ⚪ Queued | 0% |
+
+**Update 2026-11-14, local-first build (supersedes the table above and the module table below where they differ):**
+- Build order changed: everything works on one computer first; Supabase and Google Sheets come last. See Revision 3 in the implementation plan.
+- Working on local SQLite: products, customers, invoice editor with autosaved drafts and parking, local invoice issuing with consecutive numbers, payments, quotations with convert-to-invoice, PDF, dashboard, reports with CSV export, company settings, backup and restore.
+- Interface redesigned: minimal, light and dark following Windows, system font.
+- The app previously failed to start (three module-format bugs in the Electron main and preload build). Fixed; it now launches.
+- Verified: `npm run check` (GST maths, amount in words, all SQL including issuing, immutability and payment rules), `npm run build`, and a launch of the built app visiting every screen with no console errors.
+- Not verified by hand: clicking through issue, payment, PDF and restore in the running app.
+- Added from the reference projects (plan Revision 4): 13 invoice templates with accent colour, density, logo, signature, UPI QR and copy markings; credit notes; duplicate invoice; in-app document view; custom invoice items that can be saved to the catalogue; CSV import for products and customers; customer billing history; aging and credit note reports.
+- Not built: cloud login, device approval, multi-computer sync, Google Sheets, installer signing and auto-update.
 
 ---
 

@@ -14,7 +14,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['sql.js', 'node-machine-id'],
+              external: ['sql.js'],
               output: {
                 entryFileNames: 'main.js'
               }
@@ -30,10 +30,10 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            rollupOptions: {
-              output: {
-                entryFileNames: 'preload.js'
-              }
+            lib: {
+              entry: 'electron/preload/preload.ts',
+              formats: ['cjs'],
+              fileName: () => 'preload.cjs'
             }
           }
         }
@@ -41,12 +41,18 @@ export default defineConfig({
     ]),
     renderer()
   ],
+  optimizeDeps: {
+    entries: ['index.html']
+  },
+  server: {
+    port: 5173,
+    watch: {
+      ignored: ['**/references/**', '**/release/**']
+    }
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')
     }
-  },
-  server: {
-    port: 5173
   }
 });

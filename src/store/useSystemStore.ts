@@ -1,7 +1,10 @@
 import { create } from 'zustand';
 import type { DeviceInfo } from '../types/electron';
+import { getSetting, setSetting } from '../lib/db';
+import type { TemplateId, Density } from '../lib/pdf';
+import type { AppModule } from './useNavStore';
 
-interface CompanyConfig {
+export interface Company {
   legalName: string;
   tradeName: string;
   gstin: string;
@@ -10,30 +13,48 @@ interface CompanyConfig {
   phone: string;
   email: string;
   address: string;
-  financialYear: string;
   bankName: string;
   accountNumber: string;
   ifscCode: string;
   upiId: string;
+  invoicePrefix: string; // first part of the invoice number, e.g. SKY/2026-27/0001
+  terms: string; // printed on every invoice and quotation
+  template: TemplateId; // PDF look
+  accent: string; // PDF accent colour, #rrggbb
+  density: Density; // PDF spacing and text size
+  signature: string; // image data URL printed above "Authorised Signatory", or ''
+  logo: string; // image data URL printed on PDFs, or ''
+  copies: string[]; // copy markings printed per invoice PDF, one full copy each
+}
+
+// How the app itself looks and behaves on this computer (Tools > Customize)
+export interface Prefs {
+  theme: 'system' | 'light' | 'dark';
+  accent: string; // #rrggbb, or '' for the built-in blue
+  density: 'comfortable' | 'compact'; // table row height
+  startScreen: AppModule;
+  defaultGstRate: number; // pre-selected for new products and custom items
+  defaultTermsDays: number; // pre-filled for new customers
+  hiddenCards: string[]; // dashboard cards switched off
 }
 
 interface SystemState {
   isOnline: boolean;
-  syncStatus: 'idle' | 'syncing' | 'error' | 'success';
-  lastSyncedAt: Date | null;
   deviceInfo: DeviceInfo | null;
-  company: CompanyConfig;
+  company: Company;
+  prefs: Prefs;
   setIsOnline: (online: boolean) => void;
-  setSyncStatus: (status: 'idle' | 'syncing' | 'error' | 'success') => void;
   setDeviceInfo: (info: DeviceInfo) => void;
-  updateCompany: (config: Partial<CompanyConfig>) => void;
+  loadCompany: () => Promise<void>;
+  updateCompany: (config: Partial<Company>) => Promise<void>;
+  loadPrefs: () => Promise<Prefs>;
+  updatePrefs: (change: Partial<Prefs>) => Promise<void>;
 }
 
-export const useSystemStore = create<SystemState>((set) => ({
+export const useSystemStore = create<SystemState>((set, get) => ({
   isOnline: navigator.onLine,
-  syncStatus: 'idle',
-  lastSyncedAt: new Date(),
   deviceInfo: null,
+  // Placeholder profile until the real one is saved in Settings
   company: {
     legalName: 'Skyro Technologies Pvt Ltd',
     tradeName: 'Skyro UAV Systems',
@@ -43,14 +64,40 @@ export const useSystemStore = create<SystemState>((set) => ({
     phone: '+91 98765 43210',
     email: 'billing@skyrouav.in',
     address: 'Plot 42, Infocity Tech Park, Bhubaneswar, Odisha - 751024',
-    financialYear: '2026-27',
     bankName: 'HDFC Bank',
     accountNumber: '50200088991234',
     ifscCode: 'HDFC0001234',
     upiId: 'skyro@hdfcbank',
+    invoicePrefix: 'SKY',
+    terms: 'Goods once sold will not be taken back. Subject to Bhubaneswar jurisdiction.',
+    template: 'minimal',
+    accent: '#0071e3',
+    density: 'comfortable',
+    signature: '',
+    logo: '',
+    copies: ['Original for Recipient'],
   },
+  prefs: { theme: 'system', accent: '', density: 'comfortable', startScreen: 'dashboard', defaultGstRate: 18, defaultTermsDays: 15, hiddenCards: [] },
   setIsOnline: (online) => set({ isOnline: online }),
-  setSyncStatus: (syncStatus) => set({ syncStatus, lastSyncedAt: syncStatus === 'success' ? new Date() : undefined }),
   setDeviceInfo: (deviceInfo) => set({ deviceInfo }),
-  updateCompany: (config) => set((state) => ({ company: { ...state.company, ...config } })),
+  loadCompany: async () => {
+    const saved = await getSetting<Partial<Company>>('company');
+    if (saved) set((state) => ({ company: { ...state.company, ...saved } }));
+  },
+  updateCompany: async (config) => {
+    const company = { ...get().company, ...config };
+    await setSetting('company', company);
+    set({ company });
+  },
+  loadPrefs: async () => {
+    const saved = await getSetting<Partial<Prefs>>('prefs');
+    const prefs = { ...get().prefs, ...saved };
+    set({ prefs });
+    return prefs;
+  },
+  updatePrefs: async (change) => {
+    const prefs = { ...get().prefs, ...change };
+    set({ prefs }); // apply at once; the save follows
+    await setSetting('prefs', prefs);
+  },
 }));

@@ -2,48 +2,225 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens. Follows the OS light/dark setting. */
 @layer base {
   :root {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 13%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 13%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 32% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 32% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 32% 20%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 32% 20%;
-    --input: 217 32% 20%;
-    --ring: 224 76% 48%;
-    --radius: 0.5rem;
+    color-scheme: light;
+    --bg: 245 245 247;
+    --surface: 255 255 255;
+    --sidebar: 236 236 240;
+    --line: 222 222 228;
+    --ink: 29 29 31;
+    --ink-2: 99 99 102;
+    --ink-3: 142 142 147;
+    --accent: 0 113 227;
+    --danger: 215 0 21;
+    --success: 30 126 52;
+    --warn: 173 78 0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: 28 28 30;
+      --surface: 44 44 46;
+      --sidebar: 36 36 38;
+      --line: 68 68 72;
+      --ink: 245 245 247;
+      --ink-2: 174 174 178;
+      --ink-3: 124 124 128;
+      --accent: 10 132 255;
+      --danger: 255 105 97;
+      --success: 48 209 88;
+      --warn: 255 159 10;
+    }
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased overflow-hidden select-none;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  h1, h2 {
+    text-wrap: balance;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+  }
+
+  input, textarea, td, dd {
+    user-select: text;
   }
 }
 
-/* Custom scrollbars */
+@layer components {
+  /* Buttons: feedback on press, not release */
+  .btn {
+    @apply inline-flex shrink-0 items-center justify-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium whitespace-nowrap
+      bg-ink/5 text-ink hover:bg-ink/10 disabled:opacity-40 disabled:pointer-events-none;
+    transition: transform 100ms ease-out, background-color 150ms ease-out;
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn-primary {
+    @apply bg-accent text-white hover:bg-accent/90;
+  }
+  .btn-plain {
+    @apply bg-transparent;
+  }
+  .btn-icon {
+    @apply w-8 px-0 bg-transparent text-ink-2 hover:text-ink;
+  }
+  .btn-danger {
+    @apply text-danger hover:text-danger;
+  }
+
+  .field {
+    @apply block w-full h-8 px-2.5 rounded-lg bg-surface border border-line text-[13px] text-ink placeholder:text-ink-3;
+    transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+  .field:focus {
+    @apply border-accent outline-none;
+    box-shadow: 0 0 0 3px rgb(var(--accent) / 0.2);
+  }
+  textarea.field {
+    @apply h-auto py-2;
+  }
+
+  .label {
+    @apply flex flex-col gap-1 text-xs font-medium text-ink-2;
+  }
+
+  .card {
+    @apply bg-surface border border-line rounded-xl;
+  }
+
+  .tbl {
+    @apply w-full text-left;
+  }
+  .tbl th {
+    @apply px-4 py-2.5 text-[11px] font-medium text-ink-2 border-b border-line whitespace-nowrap;
+  }
+  .tbl td {
+    @apply px-4 py-2.5 border-b border-line/60 align-middle;
+  }
+  .tbl tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .tbl tbody tr:hover td {
+    @apply bg-ink/[0.03];
+  }
+  /* Spreadsheet-style table for reports: every cell ruled, header and totals pinned */
+  .grid-tbl {
+    @apply w-full text-left text-xs border-separate border-spacing-0;
+  }
+  .grid-tbl th, .grid-tbl td {
+    @apply px-2.5 py-1.5 border-b border-r border-line whitespace-nowrap;
+  }
+  .grid-tbl th {
+    @apply sticky top-0 z-[1] bg-sidebar font-medium text-ink-2;
+  }
+  .grid-tbl tbody tr:hover td {
+    @apply bg-ink/[0.04];
+  }
+  .grid-tbl tfoot td {
+    @apply sticky bottom-0 bg-sidebar font-semibold border-t border-line;
+  }
+  .grid-tbl td.empty {
+    @apply px-4 py-10 text-center text-ink-2;
+  }
+
+  [data-density='compact'] .tbl th, [data-density='compact'] .tbl td {
+    @apply py-1;
+  }
+
+  .num {
+    @apply text-right tabular-nums whitespace-nowrap;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-ink/5 text-ink-2 whitespace-nowrap;
+  }
+  .badge-success { @apply bg-success/10 text-success; }
+  .badge-warn { @apply bg-warn/10 text-warn; }
+  .badge-danger { @apply bg-danger/10 text-danger; }
+  .badge-accent { @apply bg-accent/10 text-accent; }
+
+  /* Segmented control */
+  .segmented {
+    @apply inline-flex p-0.5 rounded-lg bg-ink/5;
+  }
+  .segmented button {
+    @apply h-7 px-3 rounded-md text-xs font-medium text-ink-2;
+  }
+  .segmented button[aria-pressed='true'] {
+    @apply bg-surface text-ink shadow-sm;
+  }
+
+  .empty {
+    @apply px-4 py-10 text-center text-ink-2;
+  }
+  .error {
+    @apply text-xs text-danger;
+  }
+
+  /* Translucent chrome: content scrolls underneath */
+  .toolbar {
+    @apply sticky top-0 z-10 border-b border-line/60;
+    background: rgb(var(--bg) / 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+  }
+
+  /* Modal sheet (native <dialog>): dim to focus, materialize on enter */
+  .sheet {
+    @apply m-auto w-full max-w-lg rounded-2xl bg-surface text-ink border border-line p-0 shadow-2xl;
+    overscroll-behavior: contain;
+    animation: sheet-in 180ms ease-out;
+  }
+  .sheet::backdrop {
+    background: rgb(0 0 0 / 0.3);
+    animation: fade-in 180ms ease-out;
+  }
+
+  .page {
+    @apply p-6 space-y-5;
+    animation: fade-in 160ms ease-out;
+  }
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: scale(0.97); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .sheet::backdrop, .page { animation: none; }
+  .btn:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .toolbar { background: rgb(var(--bg)); backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --line: 110 110 115; }
+}
+
+/* Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
-
-::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
-}
-
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
-  border-radius: 9999px;
+  background: rgb(var(--ink) / 0.18);
+  border-radius: 3px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 1);
+  background: rgb(var(--ink) / 0.32);
 }
 
 /* Electron drag region utility */

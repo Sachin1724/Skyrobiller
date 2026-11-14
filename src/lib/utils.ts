@@ -23,8 +23,18 @@ export function formatDate(date: string | Date | number): string {
   });
 }
 
-export function getIndianStateName(stateCode: string): string {
-  const states: Record<string, string> = {
+// Today's date in the computer's own time zone, as YYYY-MM-DD (en-CA formats dates that way)
+export const todayISO = () => new Date().toLocaleDateString('en-CA');
+
+export function addDaysISO(isoDate: string, days: number): string {
+  const d = new Date(isoDate + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString('en-CA');
+}
+
+export const GSTIN_PATTERN = '[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]';
+
+export const INDIAN_STATES: Record<string, string> = {
     '01': 'Jammu & Kashmir',
     '02': 'Himachal Pradesh',
     '03': 'Punjab',
@@ -61,6 +71,9 @@ export function getIndianStateName(stateCode: string): string {
     '36': 'Telangana',
     '37': 'Andhra Pradesh',
     '38': 'Ladakh',
-  };
-  return states[stateCode] || 'Other Territory';
+};
+
+export function getIndianStateName(stateCode: string): string {
+  return INDIAN_STATES[stateCode] || 'Other Territory';
 }
+
