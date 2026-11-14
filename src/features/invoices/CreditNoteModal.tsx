@@ -49,8 +49,8 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
             <thead>
               <tr>
                 <th>Item</th>
-                <th className="num">Billed Qty</th>
-                <th className="num">Rate</th>
+                <th className="num w-28">Billed Qty</th>
+                <th className="num w-28">Rate</th>
                 <th className="num w-28">Credit Qty</th>
               </tr>
             </thead>

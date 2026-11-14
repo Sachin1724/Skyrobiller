@@ -60,34 +60,34 @@ export const DebitNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: boole
             <thead>
               <tr>
                 <th>Item</th>
-                <th>HSN / SAC</th>
+                <th className="w-28">HSN / SAC</th>
                 <th className="num w-24">Qty</th>
                 <th className="num w-32">Extra Rate (₹)</th>
-                <th className="num">GST</th>
-                <th><span className="sr-only">Remove</span></th>
+                <th className="num w-24">GST</th>
+                <th className="w-12 text-center"><span className="sr-only">Remove</span></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td className="max-w-xs">
+                  <td className="min-w-0">
                     {r.custom
                       ? <input aria-label={`Description of charge ${i + 1}`} value={r.description} onChange={(e) => setRow(i, { description: e.target.value })} placeholder="Freight, handling…" className="field" />
                       : <div className="truncate">{r.description}</div>}
                   </td>
                   <td>
                     {r.custom
-                      ? <input aria-label={`HSN or SAC of charge ${i + 1}`} value={r.hsnCode} onChange={(e) => setRow(i, { hsnCode: e.target.value.replace(/\D/g, '').slice(0, 8) })} inputMode="numeric" className="field w-24" />
+                      ? <input aria-label={`HSN or SAC of charge ${i + 1}`} value={r.hsnCode} onChange={(e) => setRow(i, { hsnCode: e.target.value.replace(/\D/g, '').slice(0, 8) })} inputMode="numeric" className="field w-full" />
                       : <span className="tabular-nums">{r.hsnCode}</span>}
                   </td>
                   <td><NumInput aria-label={`Quantity of ${r.description || `charge ${i + 1}`}`} step="1" value={r.qty} onChange={(n) => setRow(i, { qty: n })} className="field num" /></td>
                   <td><NumInput aria-label={`Extra rate of ${r.description || `charge ${i + 1}`}`} step="0.01" value={r.rate} onChange={(n) => setRow(i, { rate: n })} className="field num" /></td>
                   <td className="num">
                     {r.custom
-                      ? <select aria-label={`GST rate of charge ${i + 1}`} value={r.gstRate} onChange={(e) => setRow(i, { gstRate: Number(e.target.value) })} className="field w-20">{[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}%</option>)}</select>
+                      ? <select aria-label={`GST rate of charge ${i + 1}`} value={r.gstRate} onChange={(e) => setRow(i, { gstRate: Number(e.target.value) })} className="field w-full text-right">{[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}%</option>)}</select>
                       : `${r.gstRate}%`}
                   </td>
-                  <td className="num">
+                  <td className="w-12 text-center">
                     {r.custom && <button type="button" onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove charge ${i + 1}`} className="btn btn-icon btn-danger"><Trash2 className="h-4 w-4" aria-hidden /></button>}
                   </td>
                 </tr>

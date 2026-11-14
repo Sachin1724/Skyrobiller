@@ -419,13 +419,13 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
           <thead>
             <tr>
               <th>Item</th>
-              <th>HSN</th>
+              <th className="w-28">HSN</th>
               <th className="num w-24">Qty</th>
               <th className="num w-32">Rate (₹)</th>
               <th className="num w-24">Disc %</th>
-              <th className="num">GST</th>
-              <th className="num">Amount</th>
-              <th><span className="sr-only">Remove</span></th>
+              <th className="num w-24">GST</th>
+              <th className="num w-36">Amount</th>
+              <th className="w-12 text-center"><span className="sr-only">Remove</span></th>
             </tr>
           </thead>
           <tbody>
@@ -436,7 +436,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
               <tr key={i}>
                 {l.productId ? (
                   <>
-                    <td className="max-w-xs">
+                    <td className="min-w-0">
                       <div className="font-medium truncate">{l.description}</div>
                       <div className="text-xs text-ink-2">{l.sku} · {l.unit}</div>
                       <LineMessages issues={issues.filter((x) => x.line === i)} />
@@ -454,7 +454,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
                       <LineMessages issues={issues.filter((x) => x.line === i)} />
                     </td>
                     <td>
-                      <input aria-label={`HSN code of item ${i + 1}`} data-field={`hsn-${i}`} aria-invalid={bad('hsn', i)} value={l.hsnCode} onChange={(e) => setLine(i, { hsnCode: e.target.value.replace(/\D/g, '').slice(0, 8) })} inputMode="numeric" placeholder="HSN…" autoComplete="off" className="field w-24" />
+                      <input aria-label={`HSN code of item ${i + 1}`} data-field={`hsn-${i}`} aria-invalid={bad('hsn', i)} value={l.hsnCode} onChange={(e) => setLine(i, { hsnCode: e.target.value.replace(/\D/g, '').slice(0, 8) })} inputMode="numeric" placeholder="HSN…" autoComplete="off" className="field w-full" />
                     </td>
                   </>
                 )}
@@ -475,13 +475,13 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
                 </td>
                 <td className="num">
                   {l.productId ? `${l.gstRate}%` : (
-                    <select aria-label={`GST rate of item ${i + 1}`} value={l.gstRate} onChange={(e) => setLine(i, { gstRate: Number(e.target.value) })} className="field w-20">
+                    <select aria-label={`GST rate of item ${i + 1}`} value={l.gstRate} onChange={(e) => setLine(i, { gstRate: Number(e.target.value) })} className="field w-full text-right">
                       {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
                     </select>
                   )}
                 </td>
                 <td className="num font-medium">{formatCurrencyINR(totals.lineTotals[i])}</td>
-                <td className="num">
+                <td className="w-12 text-center">
                   <button onClick={() => setItems((prev) => prev.filter((_, j) => j !== i))} aria-label={`Remove item ${i + 1}`} className="btn btn-icon btn-danger">
                     <Trash2 className="h-4 w-4" aria-hidden />
                   </button>
