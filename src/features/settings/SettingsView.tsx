@@ -1,10 +1,12 @@
 import React, { useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { GSTIN_PATTERN, INDIAN_STATES, todayISO, addDaysISO } from '../../lib/utils';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import { documentHtml, TEMPLATES, ACCENT_PRESETS, DENSITIES, COPY_LABELS, type TemplateId, type Density, type PrintableDocument } from '../../lib/pdf';
 import { useSystemStore, type Company, type Prefs } from '../../store/useSystemStore';
 import { useMenuAction, type AppModule } from '../../store/useNavStore';
 import { compressImage } from '../../lib/image';
+import { confirmSheet } from '../../components/ConfirmSheet';
 import type { BackupSettings } from '../../types/electron';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
@@ -103,8 +105,12 @@ export const SettingsView: React.FC = () => {
     const pick = await window.electronAPI.dbRestorePick(backup?.effectiveFolder);
     if (!pick.success) return pick.error === 'Cancelled' ? undefined : say('', pick.error ?? 'Could not read that file');
     const p = pick.preview!;
-    const summary = `${p.invoices} invoices (latest ${p.lastInvoiceDate ?? 'none'}), ${p.customers} customers, ${p.products} products. File saved ${new Date(p.fileModified).toLocaleString()}.`;
-    if (!window.confirm(`This backup holds ${summary}\n\nRestoring replaces ALL current data on this computer. The current data is kept beside the database as “.before-restore”. Continue?`)) return;
+    if (!(await confirmSheet({
+      title: 'Restore this backup?',
+      details: [['Invoices', `${p.invoices} (latest ${p.lastInvoiceDate ?? 'none'})`], ['Customers', String(p.customers)], ['Products', String(p.products)], ['File saved', new Date(p.fileModified).toLocaleString()]],
+      message: 'Restoring replaces ALL current data on this computer. The current data is kept beside the database as “.before-restore”.',
+      confirmLabel: 'Restore', danger: true,
+    }))) return;
     const res = await window.electronAPI.dbRestoreApply(pick.filePath!); // on success the window reloads
     if (!res.success) say('', res.error ?? 'Restore failed');
   };
@@ -137,15 +143,24 @@ export const SettingsView: React.FC = () => {
   // Preview shows unsaved choices (template, colour, density, images, first copy marking) with the saved company details
   const previewHtml = documentHtml(sampleDocument(company), { template, accent, density, logo, signature, copies: copies.slice(0, 1) });
 
+  const backupStale = !!backup && (!!backup.lastError || !backup.lastAt || Date.now() - backup.lastAt > 48 * 60 * 60 * 1000);
+  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+
   return (
     <div className="page">
+      {/* Sections: one click to jump, instead of scrolling a long page */}
+      <nav aria-label="Settings sections" className="sticky top-14 z-[9] -mx-6 -mt-6 px-6 py-2 flex flex-wrap gap-2 bg-bg/90 backdrop-blur border-b border-line/60">
+        {[['company', 'Company'], ['bank', 'Bank & Terms'], ['design', 'Invoice Design'], ['preferences', 'Preferences'], ['backup', 'Backup']].map(([id, name]) => (
+          <button key={id} type="button" onClick={() => jump(id)} className={`chip ${id === 'backup' && backupStale ? 'chip-alert' : ''}`}>{name}</button>
+        ))}
+      </nav>
       <p aria-live="polite" className="text-success font-medium empty:hidden">{message}</p>
       {error && <p role="alert" className="error">{error}</p>}
 
       {/* key: remount with fresh defaults once the saved profile has loaded */}
       <form key={company.legalName + company.gstin} onSubmit={handleSubmit} autoComplete="off" className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-5 items-start">
         <div className="space-y-5 min-w-0">
-          <section className="card p-5 space-y-4">
+          <section id="company" className="card p-5 space-y-4 scroll-mt-32">
             <h2 className="text-[15px] font-semibold tracking-tight">Company Profile</h2>
             <div className="grid grid-cols-2 gap-3">
               {text('legalName', 'Legal Name', { required: true })}
@@ -160,7 +175,7 @@ export const SettingsView: React.FC = () => {
             <p className="text-xs text-ink-2">The logo appears in the sidebar and on every invoice, quotation and credit note.</p>
           </section>
 
-          <section className="card p-5 space-y-4">
+          <section id="bank" className="card p-5 space-y-4 scroll-mt-32">
             <h2 className="text-[15px] font-semibold tracking-tight">Bank Details (Printed on Invoices)</h2>
             <div className="grid grid-cols-2 gap-3">
               {text('bankName', 'Bank Name')}
@@ -173,7 +188,7 @@ export const SettingsView: React.FC = () => {
             </div>
           </section>
 
-          <section ref={designSection} className="card p-5 space-y-4 scroll-mt-20">
+          <section ref={designSection} id="design" className="card p-5 space-y-4 scroll-mt-32">
             <h2 className="text-[15px] font-semibold tracking-tight">Invoice Design</h2>
             <div className="grid grid-cols-2 gap-3">
               <label className="label">Template
@@ -241,7 +256,7 @@ export const SettingsView: React.FC = () => {
       </form>
 
       {/* App preferences: applied and saved the moment they change */}
-      <section ref={customizeSection} className="card p-5 space-y-4 max-w-3xl scroll-mt-20">
+      <section ref={customizeSection} id="preferences" className="card p-5 space-y-4 max-w-3xl scroll-mt-32">
         <h2 className="text-[15px] font-semibold tracking-tight">Customize</h2>
         <div className="grid grid-cols-2 gap-4">
           <div className="label">Theme
@@ -308,8 +323,14 @@ export const SettingsView: React.FC = () => {
         <p className="text-xs text-ink-2">Text size: use View &gt; Zoom In and Zoom Out (Ctrl + and Ctrl -).</p>
       </section>
 
-      <section className="card p-5 space-y-3 max-w-3xl">
+      <section id="backup" className={`card p-5 space-y-3 max-w-3xl scroll-mt-32 ${backupStale ? 'border-warn/60' : ''}`}>
         <h2 className="text-[15px] font-semibold tracking-tight">Backup</h2>
+        {backupStale && (
+          <p role="status" className="flex items-center gap-2 text-warn font-medium">
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+            {backup?.lastError ? `The last backup failed: ${backup.lastError}` : backup?.lastAt ? 'The last backup is more than 2 days old.' : 'No backup has been made yet.'}
+          </p>
+        )}
         <p className="text-ink-2">
           All data lives in one database file on this computer{deviceInfo ? ` (${deviceInfo.hostname})` : ''}. A copy is saved automatically once a day. Point it at a USB drive or a cloud-synced folder so it survives this computer.
         </p>

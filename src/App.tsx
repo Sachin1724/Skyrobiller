@@ -7,6 +7,9 @@ import { useSystemStore } from './store/useSystemStore';
 import { newDraftId, getSetting } from './lib/db';
 import { StatusBar } from './components/layout/StatusBar';
 import { CommandPalette, type Command } from './components/CommandPalette';
+import { AppLoader } from './components/AppLoader';
+import { ConfirmHost } from './components/ConfirmSheet';
+import { Reveal } from './components/Reveal';
 import { Tour } from './components/Tour';
 
 // Views
@@ -57,6 +60,7 @@ export const App: React.FC = () => {
   const { setIsOnline, setDeviceInfo, loadCompany, loadPrefs, updatePrefs, prefs } = useSystemStore();
   const [toast, setToast] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [ready, setReady] = useState(false); // profile and preferences loaded: the start-up loader can leave
 
   useEffect(() => {
     // 1. Online / Offline listeners
@@ -74,14 +78,15 @@ export const App: React.FC = () => {
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onRejection);
 
-    loadCompany().catch((err) => console.warn('Failed to load company profile:', err));
-    loadPrefs()
+    const company = loadCompany().catch((err) => console.warn('Failed to load company profile:', err));
+    const prefs = loadPrefs()
       .then((saved) => {
         useNavStore.getState().setCurrentModule(saved.startScreen);
         // First run: show the tutorial once
         return getSetting<boolean>('tourDone').then((done) => { if (!done) useNavStore.getState().setTourOpen(true); });
       })
       .catch((err) => console.warn('Failed to load preferences:', err));
+    Promise.all([company, prefs]).finally(() => setReady(true));
 
     // 2. Fetch hardware fingerprint and device info via Electron IPC
     if (window.electronAPI) {
@@ -203,12 +208,15 @@ export const App: React.FC = () => {
         {/* Content Area: the translucent header is sticky inside the scroller so content passes under it */}
         <main className="flex-1 min-w-0 overflow-y-auto">
           <HeaderBar />
-          {renderModuleView()}
+          {/* Each screen eases in when you switch to it */}
+          <Reveal key={currentModule}>{renderModuleView()}</Reveal>
         </main>
       </div>
       <StatusBar />
 
       {tourOpen && <Tour />}
+      <ConfirmHost />
+      <AppLoader ready={ready} />
       {paletteOpen && <CommandPalette commands={PALETTE_COMMANDS} onRun={runCommand} onClose={() => setPaletteOpen(false)} />}
 
       {/* Parked Invoices Drawer Overlay */}

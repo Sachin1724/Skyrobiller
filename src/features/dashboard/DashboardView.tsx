@@ -1,26 +1,49 @@
 import React, { useEffect, useState } from 'react';
-import { FileText, FileCheck2, Printer, FileDown, ArrowRight } from 'lucide-react';
+import { FileText, FileCheck2, Printer, FileDown, ArrowRight, CheckCircle2, Circle, CalendarDays, TrendingUp, Wallet, PenLine } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
-import { useNavStore, useMenuAction } from '../../store/useNavStore';
+import { useNavStore, useMenuAction, type AppModule } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
-import { listInvoices, listDrafts, newDraftId, financialYearOf, outstandingOf, paymentStatusOf, type Invoice } from '../../lib/db';
+import { listInvoices, listDrafts, getSetupCounts, getSetting, setSetting, newDraftId, financialYearOf, outstandingOf, paymentStatusOf, type Invoice } from '../../lib/db';
 import { invoiceDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { Modal } from '../../components/Modal';
+import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 
 export const DashboardView: React.FC = () => {
   const { setCurrentModule, setActiveInvoiceDraftId } = useNavStore();
   const company = useSystemStore((s) => s.company);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
   const [openQuotes, setOpenQuotes] = useState(0);
   const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice: Invoice } | null>(null);
   const [error, setError] = useState('');
   const hiddenCards = useSystemStore((s) => s.prefs.hiddenCards);
+  const backup = useSystemStore((s) => s.backup);
+  const [setup, setSetup] = useState<{ company: boolean; products: number; customers: number; invoices: number; dismissed: boolean } | null>(null);
+
+  useEffect(() => {
+    Promise.all([getSetupCounts(), getSetting('company'), getSetting<boolean>('setupDismissed')])
+      .then(([counts, savedCompany, dismissed]) => setSetup({ ...counts, company: savedCompany !== null, dismissed: !!dismissed }))
+      .catch(() => setSetup(null)); // the checklist is a nicety: never block the dashboard
+  }, []);
+
+  // First-run checklist: each step opens the screen that completes it
+  const steps: { label: string; done: boolean; go: AppModule }[] = setup ? [
+    { label: 'Save your company profile', done: setup.company, go: 'settings' },
+    { label: 'Add your logo', done: !!company.logo, go: 'settings' },
+    { label: 'Add your first product', done: setup.products > 0, go: 'products' },
+    { label: 'Add your first customer', done: setup.customers > 0, go: 'customers' },
+    { label: 'Issue your first invoice', done: setup.invoices > 0, go: 'invoices' },
+    { label: 'Choose a backup folder', done: !!backup?.folder, go: 'settings' },
+  ] : [];
+  const stepsDone = steps.filter((x) => x.done).length;
+  const showChecklist = setup && !setup.dismissed && stepsDone < steps.length;
 
   useEffect(() => {
     Promise.all([listInvoices(), listDrafts('invoice'), listDrafts('quotation')])
       .then(([inv, drafts, quotes]) => {
         setInvoices(inv);
+        setLoaded(true);
         setDraftCount(drafts.length);
         setOpenQuotes(quotes.filter((q) => q.status === 'draft' || q.status === 'sent').length);
       })
@@ -46,10 +69,10 @@ export const DashboardView: React.FC = () => {
   const outstanding = live.reduce((s, i) => s + outstandingOf(i), 0);
 
   const stats = [
-    { key: 'month', label: 'Sales This Month', value: formatCurrencyINR(sum(thisMonth)), detail: `${thisMonth.length} invoices` },
-    { key: 'year', label: `Sales FY ${financialYearOf(today)}`, value: formatCurrencyINR(sum(thisYear)), detail: `${thisYear.length} invoices` },
-    { key: 'outstanding', label: 'Outstanding', value: formatCurrencyINR(outstanding), detail: `${live.filter((i) => outstandingOf(i) >= 0.01).length} unpaid invoices` },
-    { key: 'progress', label: 'In Progress', value: String(draftCount + openQuotes), detail: `${draftCount} drafts · ${openQuotes} open quotations` },
+    { key: 'month', icon: CalendarDays, label: 'Sales This Month', value: formatCurrencyINR(sum(thisMonth)), detail: `${thisMonth.length} invoices` },
+    { key: 'year', icon: TrendingUp, label: `Sales FY ${financialYearOf(today)}`, value: formatCurrencyINR(sum(thisYear)), detail: `${thisYear.length} invoices` },
+    { key: 'outstanding', icon: Wallet, label: 'Outstanding', value: formatCurrencyINR(outstanding), detail: `${live.filter((i) => outstandingOf(i) >= 0.01).length} unpaid invoices` },
+    { key: 'progress', icon: PenLine, label: 'In Progress', value: String(draftCount + openQuotes), detail: `${draftCount} drafts · ${openQuotes} open quotations` },
   ].filter((s) => !hiddenCards.includes(s.key));
 
   const newInvoice = () => {
@@ -61,12 +84,47 @@ export const DashboardView: React.FC = () => {
     <div className="page">
       {error && <p role="alert" className="error">{error}</p>}
 
+      {showChecklist && (
+        <section data-reveal className="card p-5" aria-label="Setup checklist">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-[15px] font-semibold tracking-tight">Get set up</h2>
+              <p className="text-xs text-ink-2">{stepsDone} of {steps.length} done. Each step opens the screen that finishes it.</p>
+            </div>
+            <button onClick={() => { setSetting('setupDismissed', true).catch(() => undefined); setSetup((x) => x && { ...x, dismissed: true }); }} className="btn btn-plain">Hide</button>
+          </div>
+          <div className="mt-3 h-1.5 rounded-full bg-ink/10" role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={stepsDone}>
+            <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${(stepsDone / steps.length) * 100}%` }} />
+          </div>
+          <ul className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            {steps.map((step) => (
+              <li key={step.label}>
+                <button onClick={() => setCurrentModule(step.go)} disabled={step.done} className="flex w-full items-center gap-2.5 h-9 text-left disabled:cursor-default hover:text-accent disabled:hover:text-ink">
+                  {step.done ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" aria-hidden /> : <Circle className="h-4 w-4 text-ink-3 shrink-0" aria-hidden />}
+                  <span className={step.done ? 'text-ink-2 line-through' : 'font-medium'}>{step.label}</span>
+                  {!step.done && <ArrowRight className="h-3.5 w-3.5 ml-auto" aria-hidden />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {stats.map((s) => (
-          <div key={s.label} className="card p-4 min-w-0">
-            <div className="text-xs font-medium text-ink-2">{s.label}</div>
-            <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums truncate">{s.value}</div>
-            <div className="mt-0.5 text-xs text-ink-2">{s.detail}</div>
+          <div key={s.label} data-reveal className="card p-4 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-medium text-ink-2">{s.label}</div>
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-accent/10 text-accent"><s.icon className="h-3.5 w-3.5" aria-hidden /></span>
+            </div>
+            {loaded ? (
+              <>
+                <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums truncate">{s.value}</div>
+                <div className="mt-0.5 text-xs text-ink-2">{s.detail}</div>
+              </>
+            ) : (
+              <div aria-hidden className="mt-3 space-y-2"><div className="skeleton h-6 w-3/4" /><div className="skeleton h-3 w-1/2" /></div>
+            )}
           </div>
         ))}
       </div>
@@ -82,7 +140,7 @@ export const DashboardView: React.FC = () => {
         </button>
       </div>
 
-      <section className="space-y-2">
+      <section data-reveal className="space-y-2">
         <h2 className="text-[15px] font-semibold tracking-tight">Recent Invoices</h2>
         <div className="card overflow-hidden">
           <table className="tbl">
@@ -96,7 +154,10 @@ export const DashboardView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {invoices.length === 0 && <tr><td colSpan={5} className="empty">No invoices issued yet. Start with New Invoice.</td></tr>}
+              {!loaded && <SkeletonRows columns={5} />}
+              {loaded && invoices.length === 0 && (
+                <tr><td colSpan={5}><EmptyState icon={FileText} title="No invoices yet" hint="Your latest invoices will appear here." action={{ label: 'New Invoice', onClick: newInvoice }} /></td></tr>
+              )}
               {invoices.slice(0, 8).map((inv) => {
                 const status = paymentStatusOf(inv);
                 return (

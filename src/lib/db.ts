@@ -353,6 +353,13 @@ export async function issueInvoice(input: {
   return toInvoice(rows[0]);
 }
 
+// The number the next issued invoice will get, for the confirmation sheet. The real number is assigned inside the INSERT.
+export async function nextInvoiceNumber(prefix: string, issueDate: string): Promise<string> {
+  const fy = financialYearOf(issueDate);
+  const [row] = await query<{ next: number }>(`SELECT coalesce(max(seq), 0) + 1 AS next FROM local_invoices WHERE financial_year = ?`, [fy]);
+  return `${prefix}/${fy}/${String(row.next).padStart(4, '0')}`;
+}
+
 // The number stays used and the record stays in place; only the status changes.
 export function cancelInvoice(id: string): Promise<void> {
   return execute(`UPDATE local_invoices SET status = 'cancelled' WHERE id = ?`, [id]);
@@ -463,6 +470,14 @@ export function setSetting(key: string, value: unknown): Promise<void> {
   );
 }
 
+// ---------- First-run checklist ----------
+
+export async function getSetupCounts(): Promise<{ products: number; customers: number; invoices: number }> {
+  const [row] = await query<{ products: number; customers: number; invoices: number }>(
+    `SELECT (SELECT count(*) FROM local_products) AS products, (SELECT count(*) FROM local_customers) AS customers, (SELECT count(*) FROM local_invoices) AS invoices`);
+  return row;
+}
+
 // ---------- Derived values ----------
 
 export const outstandingOf = (inv: Invoice) =>
@@ -472,6 +487,8 @@ export function paymentStatusOf(inv: Invoice): { label: string; badge: string } 
   if (inv.status === 'cancelled') return { label: 'Cancelled', badge: 'badge badge-danger' };
   if (inv.credited >= inv.total + inv.debited - 0.005) return { label: 'Credited', badge: 'badge badge-accent' };
   if (outstandingOf(inv) < 0.01) return { label: 'Paid', badge: 'badge badge-success' };
-  if (inv.paid > 0) return { label: 'Partly Paid', badge: 'badge badge-warn' };
-  return { label: 'Unpaid', badge: 'badge' };
+  // Green paid, amber waiting, red past the due date
+  const overdue = inv.dueDate < new Date().toLocaleDateString('en-CA');
+  if (inv.paid > 0) return { label: 'Partly Paid', badge: overdue ? 'badge badge-danger' : 'badge badge-warn' };
+  return overdue ? { label: 'Overdue', badge: 'badge badge-danger' } : { label: 'Unpaid', badge: 'badge badge-warn' };
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from '../../components/Modal';
+import { confirmSheet } from '../../components/ConfirmSheet';
 import { computeInvoice } from '../../lib/gst';
 import { issueCreditNote, type Invoice } from '../../lib/db';
 import { formatCurrencyINR, todayISO } from '../../lib/utils';
@@ -19,7 +20,11 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
     e.preventDefault();
     if (items.length === 0) { setError('Enter a quantity above zero on at least one line.'); return; }
     const reason = String(new FormData(e.currentTarget).get('reason')).trim();
-    if (!window.confirm(`Issue a credit note of ${formatCurrencyINR(totals.total)} against ${invoice.invoiceNumber}? It gets the next credit note number and cannot be edited or deleted.`)) return;
+    if (!(await confirmSheet({
+      title: 'Issue this credit note?', headline: { label: 'Credit note total', value: formatCurrencyINR(totals.total) },
+      details: [['Against invoice', invoice.invoiceNumber], ['Customer', invoice.customer.businessName]],
+      message: 'It gets the next credit note number and cannot be edited or deleted.', confirmLabel: 'Issue Credit Note',
+    }))) return;
     setBusy(true);
     try {
       await issueCreditNote({ invoiceId: invoice.id, items, totals, reason, issueDate: todayISO() });

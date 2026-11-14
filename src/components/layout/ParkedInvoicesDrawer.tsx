@@ -4,6 +4,7 @@ import { useNavStore } from '../../store/useNavStore';
 import { formatCurrencyINR } from '../../lib/utils';
 import { listDrafts, deleteDraft, type Draft } from '../../lib/db';
 import { Modal } from '../Modal';
+import { confirmSheet } from '../ConfirmSheet';
 
 export const ParkedInvoicesDrawer: React.FC = () => {
   const { isParkedDrawerOpen, setParkedDrawerOpen, setCurrentModule, setActiveInvoiceDraftId } = useNavStore();
@@ -21,7 +22,7 @@ export const ParkedInvoicesDrawer: React.FC = () => {
   };
 
   const handleDelete = async (draftId: string) => {
-    if (!window.confirm(`Delete parked invoice ${draftId}? This cannot be undone.`)) return;
+    if (!(await confirmSheet({ title: `Delete parked invoice ${draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return;
     await deleteDraft(draftId).catch(() => {});
     reload();
   };

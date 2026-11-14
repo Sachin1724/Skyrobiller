@@ -31,7 +31,7 @@ export default {
         '2xl': '8px',
       },
       fontFamily: {
-        sans: ['-apple-system', '"SF Pro Text"', '"Segoe UI Variable Text"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        sans: ['"Geist Variable"', '-apple-system', '"SF Pro Text"', '"Segoe UI Variable Text"', '"Segoe UI"', 'system-ui', 'sans-serif'],
       },
     },
   },

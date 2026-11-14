@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Play, Trash2, FileDown, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
+import { Search, Play, Trash2, FileDown, FileText, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
@@ -9,6 +9,10 @@ import {
 } from '../../lib/db';
 import { invoiceDocument, creditNoteDocument, debitNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { Modal } from '../../components/Modal';
+import { confirmSheet } from '../../components/ConfirmSheet';
+import { RowMenu } from '../../components/RowMenu';
+import { Reveal } from '../../components/Reveal';
+import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 import { InvoiceEditor } from './InvoiceEditor';
 import { CreditNoteModal } from './CreditNoteModal';
 import { DebitNoteModal } from './DebitNoteModal';
@@ -36,6 +40,7 @@ export const InvoicesView: React.FC = () => {
   const [credits, setCredits] = useState<CreditNote[]>([]);
   const [debits, setDebits] = useState<DebitNote[]>([]);
   const [filter, setFilter] = useState<FilterId>('all');
+  const [loaded, setLoaded] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
   const [crediting, setCrediting] = useState<Invoice | null>(null);
   const [debiting, setDebiting] = useState<Invoice | null>(null);
@@ -47,7 +52,7 @@ export const InvoicesView: React.FC = () => {
 
   const reload = () =>
     Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes(), listDebitNotes()])
-      .then(([d, i, c, dn]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); })
+      .then(([d, i, c, dn]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); setLoaded(true); })
       .catch((e) => setError(e.message));
   // Refresh when the editor closes and when the parked list closes (it can delete drafts)
   useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen, isParkedDrawerOpen]);
@@ -60,6 +65,7 @@ export const InvoicesView: React.FC = () => {
 
   if (activeInvoiceDraftId !== null) {
     return (
+      <Reveal key="editor" x={14} y={0}>
       <InvoiceEditor
         key={activeInvoiceDraftId}
         draftId={activeInvoiceDraftId}
@@ -70,18 +76,22 @@ export const InvoicesView: React.FC = () => {
           setActiveInvoiceDraftId(null);
         }}
       />
+      </Reveal>
     );
   }
 
   const fail = (e: any) => setError(e.message);
   const run = (action: Promise<unknown>) => action.then(reload).catch(fail);
 
-  const handleDeleteDraft = (d: Draft) => {
-    if (window.confirm(`Delete draft ${d.draftId}? This cannot be undone.`)) run(deleteDraft(d.draftId));
+  const handleDeleteDraft = async (d: Draft) => {
+    if (await confirmSheet({ title: `Delete draft ${d.draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) run(deleteDraft(d.draftId));
   };
 
-  const handleCancel = (inv: Invoice) => {
-    if (window.confirm(`Cancel invoice ${inv.invoiceNumber}? The number stays used and the invoice is kept as cancelled. This cannot be undone.`)) run(cancelInvoice(inv.id));
+  const handleCancel = async (inv: Invoice) => {
+    if (await confirmSheet({
+      title: `Cancel invoice ${inv.invoiceNumber}?`, details: [['Customer', inv.customer.businessName], ['Total', formatCurrencyINR(inv.total)]],
+      message: 'The number stays used and the invoice is kept as cancelled. This cannot be undone.', confirmLabel: 'Cancel Invoice', cancelLabel: 'Keep Invoice', danger: true,
+    })) run(cancelInvoice(inv.id));
   };
 
   // Same customer and lines in a fresh draft, for repeat orders
@@ -106,6 +116,7 @@ export const InvoicesView: React.FC = () => {
   const shownDebits = debits.filter((d) => matches(d.debitNumber, d.invoiceNumber, d.customer.businessName));
 
   return (
+    <Reveal key="list">
     <div className="page">
       <div className="flex items-center justify-between gap-4">
         <div className="segmented" role="group" aria-label="Invoice list">
@@ -132,7 +143,7 @@ export const InvoicesView: React.FC = () => {
       {tab === 'issued' && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Filter invoices">
           {(Object.keys(FILTERS) as FilterId[]).map((id) => (
-            <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)} className="chip">
+            <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)} className={`chip ${id === 'overdue' && invoices.some(FILTERS.overdue.test) ? 'chip-alert' : ''}`}>
               {FILTERS[id].label}
               <span className="tabular-nums opacity-70">{invoices.filter(FILTERS[id].test).length}</span>
             </button>
@@ -158,8 +169,13 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {shownInvoices.length === 0 && (
-                <tr><td colSpan={7} className="empty">{searchTerm || filter !== 'all' ? 'No invoices match this search and filter.' : 'No invoices issued yet. Use New Invoice to create one.'}</td></tr>
+              {!loaded && <SkeletonRows columns={7} />}
+              {loaded && shownInvoices.length === 0 && (
+                <tr><td colSpan={7}>
+                  {searchTerm || filter !== 'all'
+                    ? <p className="empty">No invoices match this search and filter.</p>
+                    : <EmptyState icon={FileText} title="No invoices issued yet" hint="Pick a customer, search for parts, and the invoice fills itself in: HSN, GST and the next invoice number." action={{ label: 'Create Your First Invoice', onClick: () => setActiveInvoiceDraftId(newDraftId('invoice')) }} />}
+                </td></tr>
               )}
               {shownInvoices.map((inv) => {
                 const status = paymentStatusOf(inv);
@@ -186,18 +202,19 @@ export const InvoicesView: React.FC = () => {
                       <button onClick={() => setPaying(inv)} disabled={due < 0.01} className="btn btn-icon" aria-label={`Record payment for ${n}`} title="Record payment">
                         <IndianRupee className="h-4 w-4" aria-hidden />
                       </button>
-                      <button onClick={() => setCrediting(inv)} disabled={inv.status === 'cancelled' || inv.credited >= inv.total - 0.005} className="btn btn-icon" aria-label={`Issue credit note for ${n}`} title="Issue credit note">
-                        <Undo2 className="h-4 w-4" aria-hidden />
-                      </button>
-                      <button onClick={() => setDebiting(inv)} disabled={inv.status === 'cancelled'} className="btn btn-icon" aria-label={`Issue debit note for ${n}`} title="Issue debit note">
-                        <FilePlus className="h-4 w-4" aria-hidden />
-                      </button>
-                      <button onClick={() => handleDuplicate(inv)} className="btn btn-icon" aria-label={`Duplicate ${n} as a new draft`} title="Duplicate as new draft">
-                        <Copy className="h-4 w-4" aria-hidden />
-                      </button>
-                      <button onClick={() => handleCancel(inv)} disabled={inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0 || inv.debited > 0} className="btn btn-icon btn-danger" aria-label={`Cancel ${n}`} title={inv.paid > 0 || inv.credited > 0 || inv.debited > 0 ? 'Invoices with payments, credit notes or debit notes cannot be cancelled' : 'Cancel invoice'}>
-                        <Ban className="h-4 w-4" aria-hidden />
-                      </button>
+                      <RowMenu
+                        label={`More actions for ${n}`}
+                        items={[
+                          { label: 'Issue credit note', icon: Undo2, onClick: () => setCrediting(inv), disabled: inv.status === 'cancelled' || inv.credited >= inv.total + inv.debited - 0.005, title: 'Lowers what the customer owes' },
+                          { label: 'Issue debit note', icon: FilePlus, onClick: () => setDebiting(inv), disabled: inv.status === 'cancelled', title: 'Raises what the customer owes' },
+                          { label: 'Duplicate as new draft', icon: Copy, onClick: () => handleDuplicate(inv) },
+                          {
+                            label: 'Cancel invoice', icon: Ban, danger: true, onClick: () => handleCancel(inv),
+                            disabled: inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0 || inv.debited > 0,
+                            title: inv.paid > 0 || inv.credited > 0 || inv.debited > 0 ? 'Invoices with payments, credit notes or debit notes cannot be cancelled' : undefined,
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 );
@@ -219,8 +236,9 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {shownDrafts.length === 0 && (
-                <tr><td colSpan={6} className="empty">{searchTerm ? 'No drafts match this search.' : 'No drafts.'}</td></tr>
+              {!loaded && <SkeletonRows columns={6} />}
+              {loaded && shownDrafts.length === 0 && (
+                <tr><td colSpan={6} className="empty">{searchTerm ? 'No drafts match this search.' : 'No drafts. A bill you start is saved here automatically until you issue it.'}</td></tr>
               )}
               {shownDrafts.map((d) => (
                 <tr key={d.draftId}>
@@ -260,7 +278,8 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {shownCredits.length === 0 && (
+              {!loaded && <SkeletonRows columns={7} />}
+              {loaded && shownCredits.length === 0 && (
                 <tr><td colSpan={7} className="empty">{searchTerm ? 'No credit notes match this search.' : 'No credit notes. Issue one from an invoice in the Issued list.'}</td></tr>
               )}
               {shownCredits.map((c) => (
@@ -299,7 +318,8 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {shownDebits.length === 0 && (
+              {!loaded && <SkeletonRows columns={7} />}
+              {loaded && shownDebits.length === 0 && (
                 <tr><td colSpan={7} className="empty">{searchTerm ? 'No debit notes match this search.' : 'No debit notes. Issue one from an invoice in the Issued list.'}</td></tr>
               )}
               {shownDebits.map((d) => (
@@ -354,5 +374,6 @@ export const InvoicesView: React.FC = () => {
         </Modal>
       )}
     </div>
+    </Reveal>
   );
 };

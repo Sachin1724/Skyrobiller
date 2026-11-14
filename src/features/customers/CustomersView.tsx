@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Search, Pencil, Upload, History } from 'lucide-react';
+import { Plus, Search, Pencil, Upload, History, Users } from 'lucide-react';
 import { GSTIN_PATTERN, INDIAN_STATES, formatCurrencyINR, formatDate } from '../../lib/utils';
 import { searchCustomers, saveCustomer, importCustomers, listInvoices, outstandingOf, paymentStatusOf, type Customer, type Invoice } from '../../lib/db';
 import { csvRecords, downloadCsv } from '../../lib/csv';
 import { useSystemStore } from '../../store/useSystemStore';
 import { Modal } from '../../components/Modal';
+import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 import { useMenuAction } from '../../store/useNavStore';
 
 export const CustomersView: React.FC = () => {
   const homeState = useSystemStore((s) => s.company.stateCode);
   const [searchTerm, setSearchTerm] = useState('');
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loaded, setLoaded] = useState(false);
   // undefined = closed, null = adding, Customer = editing
   const [editing, setEditing] = useState<Customer | null | undefined>(undefined);
   const [stateCode, setStateCode] = useState(homeState);
@@ -19,7 +21,7 @@ export const CustomersView: React.FC = () => {
   const [history, setHistory] = useState<{ customer: Customer; invoices: Invoice[] } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const reload = () => searchCustomers(searchTerm).then(setCustomers).catch((e) => setError(e.message));
+  const reload = () => searchCustomers(searchTerm).then((rows) => { setCustomers(rows); setLoaded(true); }).catch((e) => setError(e.message));
   useEffect(() => { reload(); }, [searchTerm]);
   const defaultTermsDays = useSystemStore((s) => s.prefs.defaultTermsDays);
   useMenuAction({ 'new-customer': () => openForm(null), 'import-customers': () => fileInput.current?.click() });
@@ -147,10 +149,13 @@ export const CustomersView: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {customers.length === 0 && (
+            {!loaded && <SkeletonRows columns={6} />}
+            {loaded && customers.length === 0 && (
               <tr>
-                <td colSpan={6} className="empty">
-                  {searchTerm ? 'No customers match this search.' : 'No customers yet. Add your first customer.'}
+                <td colSpan={6}>
+                  {searchTerm
+                    ? <p className="empty">No customers match this search.</p>
+                    : <EmptyState icon={Users} title="No customers yet" hint="Save a customer once and their address, GSTIN and place of supply fill in on every bill." action={{ label: 'Add Your First Customer', onClick: () => openForm(null) }} />}
                 </td>
               </tr>
             )}

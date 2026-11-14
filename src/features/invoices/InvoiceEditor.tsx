@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, PauseCircle, Trash2, CheckCircle2, FileDown, Plus, AlertTriangle, Printer } from 'lucide-react';
 import { SearchBox } from '../../components/SearchBox';
+import { confirmSheet } from '../../components/ConfirmSheet';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import {
-  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, listInvoices, outstandingOf,
+  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, listInvoices, outstandingOf, nextInvoiceNumber,
   type Customer, type Product, type DraftKind, type QuotationStatus, type Invoice,
 } from '../../lib/db';
 import { savePdf, printDocument, invoiceDocument, type PrintableDocument } from '../../lib/pdf';
@@ -141,7 +142,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const saveToCatalogue = async (i: number) => {
     const l = items[i];
     if (!l.productId) return;
-    if (!window.confirm(`Change the catalogue price of ${l.sku} from ${formatCurrencyINR(l.catalogRate ?? 0)} to ${formatCurrencyINR(l.rate)} for all future invoices?`)) return;
+    if (!(await confirmSheet({
+      title: `Change the catalogue price of ${l.sku}?`, details: [['Now', formatCurrencyINR(l.catalogRate ?? 0)], ['New default', formatCurrencyINR(l.rate)]],
+      message: 'Applies to all future invoices. Issued invoices keep their price.', confirmLabel: 'Change Price',
+    }))) return;
     try {
       await updateProductPrice(l.productId, l.rate);
       setLine(i, { catalogRate: l.rate });
@@ -165,12 +169,25 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const handleIssue = async (print: boolean) => {
     const cust = validate();
     if (!cust || busy) return;
-    if (!window.confirm(`Issue this invoice to ${cust.businessName} for ${formatCurrencyINR(totals.total)}? It gets the next invoice number and cannot be edited afterwards; corrections are made with credit or debit notes.`)) return;
+    const issueDate = todayISO();
+    const nextNumber = await nextInvoiceNumber(company.invoicePrefix, issueDate).catch(() => '');
+    if (!(await confirmSheet({
+      title: print ? 'Issue and print this invoice?' : 'Issue this invoice?',
+      headline: { label: `Invoice total, ${totals.intraState ? 'CGST + SGST' : 'IGST'}`, value: formatCurrencyINR(totals.total) },
+      details: [
+        ['Customer', cust.businessName],
+        ['Invoice number', nextNumber || 'Next in sequence'],
+        ['Items', String(items.length)],
+        ['Due', formatDate(addDaysISO(issueDate, cust.paymentTermsDays))],
+        ...(dues && dues.outstanding >= 0.01 ? [['Already owed', `${formatCurrencyINR(dues.outstanding)}${dues.overdue ? ` (${dues.overdue} overdue)` : ''}`] as [string, string]] : []),
+      ],
+      message: 'Once issued it cannot be edited. Corrections are made with credit or debit notes.',
+      confirmLabel: print ? 'Issue & Print' : 'Issue Invoice',
+    }))) return;
     setBusy(true);
     try {
       window.clearTimeout(timer.current);
       timer.current = undefined;
-      const issueDate = todayISO();
       const invoice = await issueInvoice({
         // Logo and signature are look settings, not invoice content: keep the images out of every invoice snapshot
         draftId, customer: cust, company: { ...company, logo: '', signature: '' }, items, totals, notes,

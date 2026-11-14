@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '../../components/Modal';
+import { confirmSheet } from '../../components/ConfirmSheet';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import { issueDebitNote, type Invoice } from '../../lib/db';
 import { formatCurrencyINR, todayISO } from '../../lib/utils';
@@ -29,7 +30,11 @@ export const DebitNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: boole
       return;
     }
     const reason = String(new FormData(e.currentTarget).get('reason')).trim();
-    if (!window.confirm(`Issue a debit note of ${formatCurrencyINR(totals.total)} against ${invoice.invoiceNumber}? It gets the next debit note number and cannot be edited or deleted.`)) return;
+    if (!(await confirmSheet({
+      title: 'Issue this debit note?', headline: { label: 'Debit note total', value: formatCurrencyINR(totals.total) },
+      details: [['Against invoice', invoice.invoiceNumber], ['Customer', invoice.customer.businessName]],
+      message: 'The customer will owe this on top of the invoice. It gets the next debit note number and cannot be edited or deleted.', confirmLabel: 'Issue Debit Note',
+    }))) return;
     setBusy(true);
     try {
       await issueDebitNote({ invoiceId: invoice.id, items, totals, reason, issueDate: todayISO() });

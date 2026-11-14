@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { confirmSheet } from '../../components/ConfirmSheet';
 import { Plus, Pencil, Trash2, ArrowRightCircle } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
@@ -38,8 +39,8 @@ export const QuotationsView: React.FC = () => {
     }
   };
 
-  const handleDelete = (q: Draft) => {
-    if (window.confirm(`Delete quotation ${q.draftId}? This cannot be undone.`)) run(deleteDraft(q.draftId));
+  const handleDelete = async (q: Draft) => {
+    if (await confirmSheet({ title: `Delete quotation ${q.draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) run(deleteDraft(q.draftId));
   };
 
   const today = todayISO();

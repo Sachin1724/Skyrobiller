@@ -1,22 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Search, Pencil, Upload } from 'lucide-react';
+import { Plus, Search, Pencil, Upload, Boxes } from 'lucide-react';
 import { formatCurrencyINR } from '../../lib/utils';
 import { searchProducts, saveProduct, importProducts, type Product } from '../../lib/db';
 import { csvRecords, downloadCsv } from '../../lib/csv';
 import { Modal } from '../../components/Modal';
+import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 import { useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
 
 export const ProductsView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
+  const [loaded, setLoaded] = useState(false);
   // undefined = closed, null = adding, Product = editing
   const [editing, setEditing] = useState<Product | null | undefined>(undefined);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const reload = () => searchProducts(searchTerm).then(setProducts).catch((e) => setError(e.message));
+  const reload = () => searchProducts(searchTerm).then((rows) => { setProducts(rows); setLoaded(true); }).catch((e) => setError(e.message));
   useEffect(() => { reload(); }, [searchTerm]);
   const defaultGstRate = useSystemStore((s) => s.prefs.defaultGstRate);
   useMenuAction({ 'new-product': () => openForm(null), 'import-products': () => fileInput.current?.click() });
@@ -127,10 +129,13 @@ export const ProductsView: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {products.length === 0 && (
+            {!loaded && <SkeletonRows columns={7} />}
+            {loaded && products.length === 0 && (
               <tr>
-                <td colSpan={7} className="empty">
-                  {searchTerm ? 'No products match this search.' : 'The catalogue is empty. Add your first product.'}
+                <td colSpan={7}>
+                  {searchTerm
+                    ? <p className="empty">No products match this search.</p>
+                    : <EmptyState icon={Boxes} title="Your catalogue is empty" hint="Add the parts you sell once. After that, billing is a search and a click, with HSN code and GST rate filled in." action={{ label: 'Add Your First Product', onClick: () => openForm(null) }} />}
                 </td>
               </tr>
             )}
