@@ -33,9 +33,9 @@ export const StatusBar: React.FC = () => {
     : backup.lastAt ? `Last backup ${ago(backup.lastAt)}` : 'No backup yet';
 
   return (
-    <footer className="shrink-0 h-7 px-4 flex items-center gap-4 border-t border-line/60 bg-sidebar text-[11px] text-ink-2">
+    <footer className="shrink-0 h-7 px-4 flex items-center gap-4 border-t border-line/60 bg-sidebar text-xs text-ink-2">
       <span>FY {financialYearOf(todayISO())}</span>
-      <button onClick={() => setCurrentModule('settings')} className={`flex items-center gap-1.5 hover:text-ink ${stale ? 'text-warn' : ''}`} title={backup?.lastError ?? backup?.effectiveFolder}>
+      <button onClick={() => setCurrentModule('settings')} className={`flex items-center gap-2 hover:text-ink ${stale ? 'text-warn' : ''}`} title={backup?.lastError ?? backup?.effectiveFolder}>
         <span aria-hidden className={`size-1.5 rounded-full ${stale ? 'bg-warn' : 'bg-success'}`} />
         {text}
       </button>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { friendlyError } from '../../lib/friendlyError';
 import { Modal } from '../../components/Modal';
-import { confirmSheet } from '../../components/ConfirmSheet';
+import { confirmDialog } from '../../components/ConfirmDialog';
 import { computeInvoice } from '../../lib/gst';
 import { issueCreditNote, type Invoice } from '../../lib/db';
 import { formatCurrencyINR, todayISO } from '../../lib/utils';
@@ -20,7 +21,7 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
     e.preventDefault();
     if (items.length === 0) { setError('Enter a quantity above zero on at least one line.'); return; }
     const reason = String(new FormData(e.currentTarget).get('reason')).trim();
-    if (!(await confirmSheet({
+    if (!(await confirmDialog({
       title: 'Issue this credit note?', headline: { label: 'Credit note total', value: formatCurrencyINR(totals.total) },
       details: [['Against invoice', invoice.invoiceNumber], ['Customer', invoice.customer.businessName]],
       message: 'It gets the next credit note number and cannot be edited or deleted.', confirmLabel: 'Issue Credit Note',
@@ -30,7 +31,7 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
       await issueCreditNote({ invoiceId: invoice.id, items, totals, reason, issueDate: todayISO() });
       onClose(true);
     } catch (err: any) {
-      setError(`${err.message}. At most ${formatCurrencyINR(available)} can still be credited on this invoice.`);
+      setError(`${friendlyError(err)} At most ${formatCurrencyINR(available)} can still be credited on this invoice.`);
       setBusy(false);
     }
   };

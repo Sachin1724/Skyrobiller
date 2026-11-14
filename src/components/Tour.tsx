@@ -79,7 +79,7 @@ export const Tour: React.FC = () => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="tour-title"
-        className="card absolute shadow-2xl p-5 space-y-3"
+        className="card absolute shadow-md p-4 space-y-3"
         style={{ width: CARD_WIDTH, left: pos?.left ?? -9999, top: pos?.top ?? 0 }}
       >
         <div className="flex items-center justify-between text-xs text-ink-2">
@@ -90,7 +90,7 @@ export const Tour: React.FC = () => {
           <div className="h-1 rounded bg-accent" style={{ width: `${((index + 1) / TOUR_STEPS.length) * 100}%` }} />
         </div>
 
-        <h2 id="tour-title" className="text-[17px] font-semibold tracking-tight">{step.title}</h2>
+        <h2 id="tour-title" className="text-lg font-semibold tracking-tight">{step.title}</h2>
         <div className="space-y-2 text-ink-2">
           {step.body.map((line, i) => <p key={i}>{line}</p>)}
         </div>

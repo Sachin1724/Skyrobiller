@@ -1,4 +1,6 @@
 import React, { useRef, useState } from 'react';
+import { toast } from '../../store/useToastStore';
+import { friendlyError } from '../../lib/friendlyError';
 import { AlertTriangle } from 'lucide-react';
 import { GSTIN_PATTERN, INDIAN_STATES, todayISO, addDaysISO } from '../../lib/utils';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
@@ -6,7 +8,7 @@ import { documentHtml, TEMPLATES, ACCENT_PRESETS, DENSITIES, COPY_LABELS, type T
 import { useSystemStore, type Company, type Prefs } from '../../store/useSystemStore';
 import { useMenuAction, type AppModule } from '../../store/useNavStore';
 import { compressImage } from '../../lib/image';
-import { confirmSheet } from '../../components/ConfirmSheet';
+import { confirmDialog } from '../../components/ConfirmDialog';
 import type { BackupSettings } from '../../types/electron';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
@@ -46,10 +48,9 @@ export const SettingsView: React.FC = () => {
   const [logo, setLogo] = useState(company.logo);
   const [signature, setSignature] = useState(company.signature);
   const [copies, setCopies] = useState(company.copies);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const say = (ok: string, err = '') => { setMessage(ok); setError(err); };
+  const say = (ok: string, err = '') => { if (ok) toast.success(ok); setError(err); };
 
   // Menu bar: File > Back Up / Restore, Tools > Invoice Design / Customize
   useMenuAction({
@@ -59,7 +60,7 @@ export const SettingsView: React.FC = () => {
     'customize': () => customizeSection.current?.scrollIntoView({ block: 'start' }),
   });
 
-  const setPref = (change: Partial<Prefs>) => updatePrefs(change).catch((err) => say('', `Preference not saved: ${err.message}`));
+  const setPref = (change: Partial<Prefs>) => updatePrefs(change).catch((err) => say('', `Preference not saved: ${friendlyError(err)}`));
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -72,7 +73,7 @@ export const SettingsView: React.FC = () => {
       });
       say('Settings saved. New invoices use them; issued invoices keep their original company details.');
     } catch (err: any) {
-      say('', `Not saved: ${err.message}`);
+      say('', `Not saved: ${friendlyError(err)}`);
     }
   };
 
@@ -87,7 +88,7 @@ export const SettingsView: React.FC = () => {
       set(res.dataUrl);
       say(`Image optimized (${res.originalKb} KB → ${res.compressedKb} KB, ${res.width}×${res.height}px).`);
     } catch (err: any) {
-      say('', `Could not process image: ${err.message}`);
+      say('', `Could not process image: ${friendlyError(err)}`);
     }
   };
 
@@ -97,7 +98,7 @@ export const SettingsView: React.FC = () => {
   const handleBackup = async () => {
     const res = await window.electronAPI.dbBackup();
     if (res.success) say(`Backup saved to ${res.filePath}`);
-    else if (res.error !== 'Cancelled') say('', `Backup failed: ${res.error}`);
+    else if (res.error !== 'Cancelled') say('', `Backup failed: ${friendlyError(res.error)}`);
   };
 
   // Pick a file, show what is in it, and only then replace the data
@@ -105,7 +106,7 @@ export const SettingsView: React.FC = () => {
     const pick = await window.electronAPI.dbRestorePick(backup?.effectiveFolder);
     if (!pick.success) return pick.error === 'Cancelled' ? undefined : say('', pick.error ?? 'Could not read that file');
     const p = pick.preview!;
-    if (!(await confirmSheet({
+    if (!(await confirmDialog({
       title: 'Restore this backup?',
       details: [['Invoices', `${p.invoices} (latest ${p.lastInvoiceDate ?? 'none'})`], ['Customers', String(p.customers)], ['Products', String(p.products)], ['File saved', new Date(p.fileModified).toLocaleString()]],
       message: 'Restoring replaces ALL current data on this computer. The current data is kept beside the database as “.before-restore”.',
@@ -115,13 +116,13 @@ export const SettingsView: React.FC = () => {
     if (!res.success) say('', res.error ?? 'Restore failed');
   };
 
-  const changeBackup = (change: Partial<BackupSettings>) => window.electronAPI.backupSet(change).then(setBackup).catch((err) => say('', `Backup setting not saved: ${err.message}`));
-  const backupNow = () => window.electronAPI.backupRunNow().then((s) => { setBackup(s); s.lastError ? say('', `Backup failed: ${s.lastError}`) : say(`Backup written to ${s.lastFile}`); });
+  const changeBackup = (change: Partial<BackupSettings>) => window.electronAPI.backupSet(change).then(setBackup).catch((err) => say('', `Backup setting not saved: ${friendlyError(err)}`));
+  const backupNow = () => window.electronAPI.backupRunNow().then((s) => { setBackup(s); s.lastError ? say('', `Backup failed: ${friendlyError(s.lastError)}`) : say(`Backup written to ${s.lastFile}`); });
   const chooseFolder = () => window.electronAPI.backupChooseFolder().then(setBackup);
   const exportLogs = async () => {
     const res = await window.electronAPI.exportLogs();
     if (res.success) say(`Logs saved to ${res.filePath}`);
-    else if (res.error !== 'Cancelled') say('', `Could not export logs: ${res.error}`);
+    else if (res.error !== 'Cancelled') say('', `Could not export logs: ${friendlyError(res.error)}`);
   };
 
   const text = (name: keyof Company, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}, span = '') => (
@@ -132,7 +133,7 @@ export const SettingsView: React.FC = () => {
 
   const imagePicker = (label: string, value: string, set: (v: string) => void, isSignature = false) => (
     <div className="flex items-end gap-3">
-      {value && <img src={value} alt={`Current ${label.toLowerCase()}`} width={96} height={48} className="h-12 w-24 object-contain rounded-lg border border-line bg-white" />}
+      {value && <img src={value} alt={`Current ${label.toLowerCase()}`} width={96} height={48} className="h-12 w-24 object-contain rounded border border-line bg-white" />}
       <label className="label">{label} (PNG or JPEG, auto-resized)
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pickImage(set, isSignature)} className="text-xs text-ink file:btn file:mr-2 file:border-0" />
       </label>
@@ -149,19 +150,18 @@ export const SettingsView: React.FC = () => {
   return (
     <div className="page">
       {/* Sections: one click to jump, instead of scrolling a long page */}
-      <nav aria-label="Settings sections" className="sticky top-14 z-[9] -mx-6 -mt-6 px-6 py-2 flex flex-wrap gap-2 bg-bg/90 backdrop-blur border-b border-line/60">
+      <nav aria-label="Settings sections" className="sticky top-14 z-[9] -mx-6 -mt-6 px-6 py-2 flex flex-wrap gap-2 bg-bg border-b border-line">
         {[['company', 'Company'], ['bank', 'Bank & Terms'], ['design', 'Invoice Design'], ['preferences', 'Preferences'], ['backup', 'Backup']].map(([id, name]) => (
           <button key={id} type="button" onClick={() => jump(id)} className={`chip ${id === 'backup' && backupStale ? 'chip-alert' : ''}`}>{name}</button>
         ))}
       </nav>
-      <p aria-live="polite" className="text-success font-medium empty:hidden">{message}</p>
       {error && <p role="alert" className="error">{error}</p>}
 
       {/* key: remount with fresh defaults once the saved profile has loaded */}
-      <form key={company.legalName + company.gstin} onSubmit={handleSubmit} autoComplete="off" className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-5 items-start">
-        <div className="space-y-5 min-w-0">
-          <section id="company" className="card p-5 space-y-4 scroll-mt-32">
-            <h2 className="text-[15px] font-semibold tracking-tight">Company Profile</h2>
+      <form key={company.legalName + company.gstin} onSubmit={handleSubmit} autoComplete="off" className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-4 items-start">
+        <div className="space-y-4 min-w-0">
+          <section id="company" className="card p-4 space-y-4 scroll-mt-32">
+            <h2 className="text-base font-semibold tracking-tight">Company Profile</h2>
             <div className="grid grid-cols-2 gap-3">
               {text('legalName', 'Legal Name', { required: true })}
               {text('tradeName', 'Trade Name', { required: true })}
@@ -175,8 +175,8 @@ export const SettingsView: React.FC = () => {
             <p className="text-xs text-ink-2">The logo appears in the sidebar and on every invoice, quotation and credit note.</p>
           </section>
 
-          <section id="bank" className="card p-5 space-y-4 scroll-mt-32">
-            <h2 className="text-[15px] font-semibold tracking-tight">Bank Details (Printed on Invoices)</h2>
+          <section id="bank" className="card p-4 space-y-4 scroll-mt-32">
+            <h2 className="text-base font-semibold tracking-tight">Bank Details (Printed on Invoices)</h2>
             <div className="grid grid-cols-2 gap-3">
               {text('bankName', 'Bank Name')}
               {text('accountNumber', 'Account Number', { inputMode: 'numeric', spellCheck: false })}
@@ -188,8 +188,8 @@ export const SettingsView: React.FC = () => {
             </div>
           </section>
 
-          <section ref={designSection} id="design" className="card p-5 space-y-4 scroll-mt-32">
-            <h2 className="text-[15px] font-semibold tracking-tight">Invoice Design</h2>
+          <section ref={designSection} id="design" className="card p-4 space-y-4 scroll-mt-32">
+            <h2 className="text-base font-semibold tracking-tight">Invoice Design</h2>
             <div className="grid grid-cols-2 gap-3">
               <label className="label">Template
                 <select value={template} onChange={(e) => setTemplate(e.target.value as TemplateId)} className="field">
@@ -244,7 +244,7 @@ export const SettingsView: React.FC = () => {
         {/* A4 page (794 x 1123 px) scaled to 55%. Sticky so it stays in view while scrolling to the design controls */}
         <div className="space-y-2 xl:sticky xl:top-20">
           <h2 className="text-xs font-medium text-ink-2">Preview (Sample Data)</h2>
-          <div className="w-[437px] h-[618px] overflow-hidden rounded-xl border border-line bg-white">
+          <div className="w-[437px] h-[618px] overflow-hidden rounded-md border border-line bg-white">
             <iframe
               title="Invoice template preview"
               sandbox=""
@@ -256,8 +256,8 @@ export const SettingsView: React.FC = () => {
       </form>
 
       {/* App preferences: applied and saved the moment they change */}
-      <section ref={customizeSection} id="preferences" className="card p-5 space-y-4 max-w-3xl scroll-mt-32">
-        <h2 className="text-[15px] font-semibold tracking-tight">Customize</h2>
+      <section ref={customizeSection} id="preferences" className="card p-4 space-y-4 max-w-3xl scroll-mt-32">
+        <h2 className="text-base font-semibold tracking-tight">Customize</h2>
         <div className="grid grid-cols-2 gap-4">
           <div className="label">Theme
             <div className="segmented self-start" role="group" aria-label="Theme">
@@ -289,7 +289,7 @@ export const SettingsView: React.FC = () => {
                   />
                 );
               })}
-              <input type="color" aria-label="Custom app accent colour" value={prefs.accent || '#0071e3'} onChange={(e) => setPref({ accent: e.target.value })} className="h-7 w-10 rounded bg-transparent" />
+              <input type="color" aria-label="Custom app accent colour" value={prefs.accent || '#2a54e0'} onChange={(e) => setPref({ accent: e.target.value })} className="h-7 w-10 rounded bg-transparent" />
             </div>
           </div>
           <label className="label">Screen Shown at Start-Up
@@ -323,12 +323,12 @@ export const SettingsView: React.FC = () => {
         <p className="text-xs text-ink-2">Text size: use View &gt; Zoom In and Zoom Out (Ctrl + and Ctrl -).</p>
       </section>
 
-      <section id="backup" className={`card p-5 space-y-3 max-w-3xl scroll-mt-32 ${backupStale ? 'border-warn/60' : ''}`}>
-        <h2 className="text-[15px] font-semibold tracking-tight">Backup</h2>
+      <section id="backup" className={`card p-4 space-y-3 max-w-3xl scroll-mt-32 ${backupStale ? 'border-warn/60' : ''}`}>
+        <h2 className="text-base font-semibold tracking-tight">Backup</h2>
         {backupStale && (
           <p role="status" className="flex items-center gap-2 text-warn font-medium">
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
-            {backup?.lastError ? `The last backup failed: ${backup.lastError}` : backup?.lastAt ? 'The last backup is more than 2 days old.' : 'No backup has been made yet.'}
+            {backup?.lastError ? `The last backup failed: ${friendlyError(backup.lastError)}` : backup?.lastAt ? 'The last backup is more than 2 days old.' : 'No backup has been made yet.'}
           </p>
         )}
         <p className="text-ink-2">

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../lib/friendlyError';
 import { listAudit, listInvoices, type AuditEntry } from '../../lib/db';
 
 const ENTITY_LABEL: Record<string, string> = { product: 'Product', customer: 'Customer', invoice: 'Invoice', payment: 'Payment', credit_note: 'Credit note', debit_note: 'Debit note' };
@@ -41,7 +42,7 @@ export const AuditLog: React.FC<{ from: string; to: string }> = ({ from, to }) =
   useEffect(() => {
     Promise.all([listAudit({ from, to }), listInvoices()])
       .then(([list, invoices]) => { setEntries(list); setInvoiceNumbers(new Map(invoices.map((i) => [i.id, i.invoiceNumber]))); })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
   }, [from, to]);
 
   return (

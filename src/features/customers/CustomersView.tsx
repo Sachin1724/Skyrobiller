@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { toast } from '../../store/useToastStore';
+import { friendlyError } from '../../lib/friendlyError';
+import { isValidGstin } from '../../lib/checks';
 import { Plus, Search, Pencil, Upload, History, Users } from 'lucide-react';
 import { GSTIN_PATTERN, INDIAN_STATES, formatCurrencyINR, formatDate } from '../../lib/utils';
 import { searchCustomers, saveCustomer, importCustomers, listInvoices, outstandingOf, paymentStatusOf, type Customer, type Invoice } from '../../lib/db';
 import { csvRecords, downloadCsv } from '../../lib/csv';
 import { useSystemStore } from '../../store/useSystemStore';
 import { Modal } from '../../components/Modal';
+import { RowMenu } from '../../components/RowMenu';
 import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 import { useMenuAction } from '../../store/useNavStore';
 
@@ -17,11 +21,10 @@ export const CustomersView: React.FC = () => {
   const [editing, setEditing] = useState<Customer | null | undefined>(undefined);
   const [stateCode, setStateCode] = useState(homeState);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [history, setHistory] = useState<{ customer: Customer; invoices: Invoice[] } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const reload = () => searchCustomers(searchTerm).then((rows) => { setCustomers(rows); setLoaded(true); }).catch((e) => setError(e.message));
+  const reload = () => searchCustomers(searchTerm).then((rows) => { setCustomers(rows); setLoaded(true); }).catch((e) => setError(friendlyError(e)));
   useEffect(() => { reload(); }, [searchTerm]);
   const defaultTermsDays = useSystemStore((s) => s.prefs.defaultTermsDays);
   useMenuAction({ 'new-customer': () => openForm(null), 'import-customers': () => fileInput.current?.click() });
@@ -35,14 +38,13 @@ export const CustomersView: React.FC = () => {
   const openHistory = (customer: Customer) =>
     listInvoices()
       .then((all) => setHistory({ customer, invoices: all.filter((i) => i.customer.id === customer.id) }))
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
 
   // Whole file or nothing: every row is checked first, then imported in one transaction
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setNotice('');
     try {
       const records = csvRecords(await file.text(), ['name', 'address', 'pincode', 'state_code']);
       const problems: string[] = [];
@@ -63,16 +65,16 @@ export const CustomersView: React.FC = () => {
       if (problems.length) throw new Error(`Nothing was imported. Fix these rows and import again. ${problems.slice(0, 5).join('. ')}${problems.length > 5 ? `. And ${problems.length - 5} more.` : '.'}`);
       await importCustomers(rows);
       setError('');
-      setNotice(`Imported ${rows.length} rows. Customers whose GSTIN was already saved were skipped.`);
+      toast.success(`Imported ${rows.length} rows. Customers whose GSTIN was already saved were skipped.`);
       reload();
     } catch (err: any) {
-      setError(err.message);
+      setError(friendlyError(err));
     }
   };
 
   const downloadTemplate = () => downloadCsv('customers-template', [
     ['name', 'gstin', 'address', 'pincode', 'state_code', 'contact', 'phone', 'email', 'terms_days'],
-    ['SkyHigh Drones Pvt Ltd', '21AABCS9821K1ZZ', 'Plot 102, Mancheswar Industrial Estate, Bhubaneswar', '751010', '21', 'Anand Verma', '9437011223', 'accounts@example.com', 15],
+    ['SkyHigh Drones Pvt Ltd', '21AABCS9821K1ZB', 'Plot 102, Mancheswar Industrial Estate, Bhubaneswar', '751010', '21', 'Anand Verma', '9437011223', 'accounts@example.com', 15],
   ]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -80,6 +82,10 @@ export const CustomersView: React.FC = () => {
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
     if (f.gstin && f.gstin.slice(0, 2) !== stateCode) {
       setError(`This GSTIN belongs to state ${f.gstin.slice(0, 2)}, but state ${stateCode} is selected. Change one to match.`);
+      return;
+    }
+    if (f.gstin && !isValidGstin(f.gstin)) {
+      setError(`GSTIN ${f.gstin} is not valid: its check character does not match. Re-check the number against the registration certificate.`);
       return;
     }
     try {
@@ -99,7 +105,7 @@ export const CustomersView: React.FC = () => {
       setEditing(undefined);
       reload();
     } catch (err: any) {
-      setError(err.message);
+      setError(friendlyError(err));
     }
   };
 
@@ -132,8 +138,6 @@ export const CustomersView: React.FC = () => {
           </button>
         </div>
       </div>
-
-      <p aria-live="polite" className="text-success font-medium empty:hidden">{notice}</p>
       {error && editing === undefined && <p role="alert" className="error">{error}</p>}
 
       <div className="card overflow-hidden">
@@ -175,12 +179,13 @@ export const CustomersView: React.FC = () => {
                 </td>
                 <td className="num">{item.paymentTermsDays === 0 ? 'Immediate' : `${item.paymentTermsDays} days`}</td>
                 <td className="num">
-                  <button onClick={() => openHistory(item)} className="btn btn-icon" aria-label={`Billing history of ${item.businessName}`} title="Billing history">
-                    <History className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                  <button onClick={() => openForm(item)} className="btn btn-icon" aria-label={`Edit ${item.businessName}`} title="Edit">
-                    <Pencil className="h-3.5 w-3.5" aria-hidden />
-                  </button>
+                  <RowMenu
+                    label={`Actions for ${item.businessName}`}
+                    items={[
+                      { label: 'Edit customer', icon: Pencil, onClick: () => openForm(item) },
+                      { label: 'Billing history', icon: History, onClick: () => openHistory(item) },
+                    ]}
+                  />
                 </td>
               </tr>
             ))}

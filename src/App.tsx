@@ -8,7 +8,10 @@ import { newDraftId, getSetting } from './lib/db';
 import { StatusBar } from './components/layout/StatusBar';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { AppLoader } from './components/AppLoader';
-import { ConfirmHost } from './components/ConfirmSheet';
+import { ConfirmHost } from './components/ConfirmDialog';
+import { ToastHost } from './components/Toast';
+import { toast } from './store/useToastStore';
+import { friendlyError } from './lib/friendlyError';
 import { Reveal } from './components/Reveal';
 import { Tour } from './components/Tour';
 
@@ -58,7 +61,6 @@ const DOCUMENT_COMMANDS = ['save', 'save-copy', 'save-pdf', 'print'];
 export const App: React.FC = () => {
   const { currentModule, tourOpen } = useNavStore();
   const { setIsOnline, setDeviceInfo, loadCompany, loadPrefs, updatePrefs, prefs } = useSystemStore();
-  const [toast, setToast] = useState('');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [ready, setReady] = useState(false); // profile and preferences loaded: the start-up loader can leave
 
@@ -126,7 +128,7 @@ export const App: React.FC = () => {
       nav.setCurrentModule(action.slice(4) as AppModule);
     } else if (action.startsWith('theme:')) {
       updatePrefs({ theme: action.slice(6) as 'light' | 'dark' | 'system' })
-        .catch((err) => setToast(`Theme changed, but the choice could not be saved: ${err.message}`));
+        .catch((err) => toast.error(`Theme changed, but the choice could not be saved. ${friendlyError(err)}`));
     } else if (action === 'new-invoice') {
       nav.setActiveInvoiceDraftId(newDraftId('invoice'));
       nav.setCurrentModule('invoices');
@@ -139,7 +141,7 @@ export const App: React.FC = () => {
     } else if (action === 'backup-now') {
       window.electronAPI.backupRunNow().then((status) => {
         useSystemStore.getState().setBackup(status);
-        setToast(status.lastError ? `Backup failed: ${status.lastError}` : 'Backup saved.');
+        if (status.lastError) toast.error(`Backup failed. ${friendlyError(status.lastError)}`); else toast.success('Backup saved.');
       });
     } else if (action === 'find') {
       document.querySelector<HTMLInputElement>('main input[type="search"], main input[role="combobox"]')?.focus();
@@ -151,7 +153,7 @@ export const App: React.FC = () => {
         setTimeout(() => {
           if (useNavStore.getState().menuAction?.name !== action) return;
           useNavStore.setState({ menuAction: null });
-          setToast('Open a draft or quotation, or view an issued invoice, to use Save, Save As PDF and Print.');
+          toast.info('Open a draft or quotation, or view an issued invoice, to use Save, Save As PDF and Print.');
         }, 200);
       }
     }
@@ -167,12 +169,6 @@ export const App: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(''), 5000);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   const renderModuleView = () => {
     switch (currentModule) {
@@ -222,9 +218,7 @@ export const App: React.FC = () => {
       {/* Parked Invoices Drawer Overlay */}
       <ParkedInvoicesDrawer />
 
-      <div role="status" aria-live="polite" className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
-        {toast && <p className="card px-4 py-2.5 shadow-xl">{toast}</p>}
-      </div>
+      <ToastHost />
     </div>
   );
 };

@@ -130,7 +130,7 @@ export const HelpView: React.FC = () => {
 
       {screens.length > 0 && (
         <section className="card overflow-hidden">
-          <h2 className="px-5 pt-5 pb-2 text-[15px] font-semibold tracking-tight">What Each Screen Does</h2>
+          <h2 className="px-4 pt-4 pb-2 text-base font-semibold tracking-tight">What Each Screen Does</h2>
           <table className="tbl">
             <tbody>
               {screens.map((sc) => (
@@ -151,7 +151,7 @@ export const HelpView: React.FC = () => {
 
       {menus.length > 0 && (
         <section className="card overflow-hidden">
-          <h2 className="px-5 pt-5 pb-2 text-[15px] font-semibold tracking-tight">What Each Menu Does</h2>
+          <h2 className="px-4 pt-4 pb-2 text-base font-semibold tracking-tight">What Each Menu Does</h2>
           <table className="tbl">
             <tbody>
               {menus.map((m) => (
@@ -172,8 +172,8 @@ export const HelpView: React.FC = () => {
       {screens.length === 0 && menus.length === 0 && topics.length === 0 && keys.length === 0 && <p className="empty">Nothing in the help matches “{query}”. Try fewer or different words.</p>}
 
       {topics.map((t) => (
-        <section key={t.title} className="card p-5 space-y-2">
-          <h2 className="text-[15px] font-semibold tracking-tight">{t.title}</h2>
+        <section key={t.title} className="card p-4 space-y-2">
+          <h2 className="text-base font-semibold tracking-tight">{t.title}</h2>
           <ol className="list-decimal pl-5 space-y-1.5 text-ink-2 marker:text-ink-3">
             {t.steps.map((step) => <li key={step}>{step}</li>)}
           </ol>
@@ -182,7 +182,7 @@ export const HelpView: React.FC = () => {
 
       {keys.length > 0 && (
         <section ref={shortcuts} className="card overflow-hidden scroll-mt-20">
-          <h2 className="px-5 pt-5 pb-2 text-[15px] font-semibold tracking-tight">Keyboard Shortcuts</h2>
+          <h2 className="px-4 pt-4 pb-2 text-base font-semibold tracking-tight">Keyboard Shortcuts</h2>
           <table className="tbl">
             <tbody>
               {keys.map(([k, what]) => (

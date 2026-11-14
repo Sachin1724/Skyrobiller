@@ -2,43 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens. Follows the OS light/dark setting. */
+/* Design tokens. Follows the OS light/dark setting.
+   Scale: type 12 / 13 / 14 / 18 px, spacing 4 / 8 / 12 / 16 / 24, radius 4 (controls) and 6 (cards, sheets).
+   Controls are 32px tall, table rows 36px. Colour is for status only: green paid, amber due, red overdue or error. */
 @layer base {
   :root {
     color-scheme: light;
-    --bg: 245 245 247;
+    --bg: 243 243 243;
     --surface: 255 255 255;
-    --sidebar: 236 236 240;
-    --line: 222 222 228;
-    --ink: 29 29 31;
-    --ink-2: 99 99 102;
-    --ink-3: 142 142 147;
-    --accent: 0 113 227;
-    --danger: 215 0 21;
-    --success: 30 126 52;
-    --warn: 173 78 0;
+    --sidebar: 235 235 235;
+    --line: 224 224 224;
+    --ink: 26 26 26;
+    --ink-2: 94 94 94;
+    --ink-3: 118 118 118;
+    --accent: 42 84 224; /* Skyro brand blue */
+    --on-accent: 255 255 255;
+    --danger: 196 43 28;
+    --danger-solid: 196 43 28;
+    --success: 16 124 16;
+    --warn: 157 93 0;
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --bg: 28 28 30;
-      --surface: 44 44 46;
-      --sidebar: 36 36 38;
-      --line: 68 68 72;
-      --ink: 245 245 247;
-      --ink-2: 174 174 178;
-      --ink-3: 124 124 128;
-      --accent: 10 132 255;
-      --danger: 255 105 97;
-      --success: 48 209 88;
-      --warn: 255 159 10;
+      --bg: 32 32 32;
+      --surface: 43 43 43;
+      --sidebar: 27 27 27;
+      --line: 61 61 61;
+      --ink: 245 245 245;
+      --ink-2: 196 196 196;
+      --ink-3: 160 160 160;
+      --accent: 118 150 255;
+      --on-accent: 10 10 10;
+      --danger: 255 153 164;
+      --danger-solid: 196 43 28;
+      --success: 108 203 95;
+      --warn: 252 190 40;
     }
   }
 
   body {
-    @apply bg-bg text-ink font-sans antialiased overflow-hidden select-none;
-    font-size: 13px;
+    @apply bg-bg text-ink font-sans antialiased overflow-hidden select-none text-sm;
     line-height: 1.45;
   }
 
@@ -57,35 +62,49 @@
 }
 
 @layer components {
-  /* Buttons: feedback on press, not release */
+  /* Buttons: flat and solid. Secondary is the default; primary is the one main action on a screen. */
   .btn {
-    @apply inline-flex shrink-0 items-center justify-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium whitespace-nowrap
-      bg-ink/5 text-ink hover:bg-ink/10 disabled:opacity-40 disabled:pointer-events-none;
-    transition: transform 100ms ease-out, background-color 150ms ease-out;
-  }
-  .btn:active {
-    transform: scale(0.97);
+    @apply inline-flex shrink-0 items-center justify-center gap-2 h-8 px-3 rounded text-sm font-medium whitespace-nowrap
+      bg-surface text-ink border border-line hover:bg-ink/5 hover:border-ink/25 disabled:opacity-40 disabled:pointer-events-none;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
   }
   .btn-primary {
-    @apply bg-accent text-white hover:bg-accent/90;
-  }
-  .btn-plain {
-    @apply bg-transparent;
-  }
-  .btn-icon {
-    @apply w-8 px-0 bg-transparent text-ink-2 hover:text-ink;
+    @apply bg-accent text-on-accent border-accent hover:bg-accent/90 hover:border-accent;
   }
   .btn-danger {
-    @apply text-danger hover:text-danger;
+    @apply text-danger border-danger/40 hover:bg-danger/10 hover:border-danger/60;
+  }
+  .btn-danger-solid {
+    @apply text-white border-transparent hover:border-transparent;
+    background-color: rgb(var(--danger-solid));
+  }
+  .btn-danger-solid:hover {
+    background-color: rgb(var(--danger-solid) / 0.88);
+  }
+  .btn-plain {
+    @apply bg-transparent border-transparent hover:border-transparent;
+  }
+  /* Icon-only ghost button; delete-style icons stay grey until hovered */
+  .btn-icon {
+    @apply w-8 px-0 bg-transparent border-transparent text-ink-2 hover:text-ink hover:border-transparent;
+  }
+  .btn-icon.btn-danger {
+    @apply text-ink-2 hover:text-danger hover:bg-danger/10 hover:border-transparent;
   }
 
   .field {
-    @apply block w-full h-8 px-2.5 rounded-lg bg-surface border border-line text-[13px] text-ink placeholder:text-ink-3;
-    transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+    @apply block w-full h-8 px-2 rounded bg-surface border border-line text-sm text-ink placeholder:text-ink-3;
+    transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
   }
   .field:focus {
     @apply border-accent outline-none;
-    box-shadow: 0 0 0 3px rgb(var(--accent) / 0.2);
+    box-shadow: 0 0 0 2px rgb(var(--accent) / 0.25);
+  }
+  .field[aria-invalid='true'] {
+    @apply border-danger;
+  }
+  .field[aria-invalid='true']:focus {
+    box-shadow: 0 0 0 2px rgb(var(--danger) / 0.25);
   }
   textarea.field {
     @apply h-auto py-2;
@@ -96,18 +115,20 @@
   }
 
   .card {
-    @apply bg-surface border border-line rounded-xl;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 12px -6px rgb(0 0 0 / 0.06);
+    @apply bg-surface border border-line rounded-md;
   }
 
+  /* Lists: tinted header, 36px rows, numbers right-aligned with .num */
   .tbl {
     @apply w-full text-left;
   }
   .tbl th {
-    @apply px-4 py-2.5 text-[11px] font-medium text-ink-2 border-b border-line whitespace-nowrap;
+    @apply px-3 text-xs font-semibold text-ink-2 bg-ink/[0.04] border-b border-line whitespace-nowrap;
+    height: 32px;
   }
   .tbl td {
-    @apply px-4 py-2.5 border-b border-line/60 align-middle;
+    @apply px-3 py-1 border-b border-line/70 align-middle;
+    height: 36px;
   }
   .tbl tbody tr:last-child td {
     @apply border-b-0;
@@ -120,10 +141,10 @@
     @apply w-full text-left text-xs border-separate border-spacing-0;
   }
   .grid-tbl th, .grid-tbl td {
-    @apply px-2.5 py-1.5 border-b border-r border-line whitespace-nowrap;
+    @apply px-2 py-1 border-b border-r border-line whitespace-nowrap;
   }
   .grid-tbl th {
-    @apply sticky top-0 z-[1] bg-sidebar font-medium text-ink-2;
+    @apply sticky top-0 z-[1] bg-sidebar font-semibold text-ink-2;
   }
   .grid-tbl tbody tr:hover td {
     @apply bg-ink/[0.04];
@@ -135,8 +156,8 @@
     @apply px-4 py-10 text-center text-ink-2;
   }
 
-  [data-density='compact'] .tbl th, [data-density='compact'] .tbl td {
-    @apply py-1;
+  [data-density='compact'] .tbl td {
+    height: 30px;
   }
 
   .num {
@@ -144,7 +165,7 @@
   }
 
   .badge {
-    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-ink/5 text-ink-2 whitespace-nowrap;
+    @apply inline-flex items-center px-2 h-5 rounded text-xs font-medium bg-ink/5 text-ink-2 whitespace-nowrap;
   }
   .badge-success { @apply bg-success/10 text-success; }
   .badge-warn { @apply bg-warn/10 text-warn; }
@@ -153,8 +174,7 @@
 
   /* Floating menu opened from a row's "more" button */
   .menu-pop {
-    @apply fixed z-30 min-w-52 p-1 rounded-xl bg-surface border border-line shadow-2xl;
-    animation: fade-in 120ms ease-out;
+    @apply fixed z-30 min-w-52 p-1 rounded-md bg-surface border border-line shadow-md;
   }
   .chip-alert {
     @apply text-danger border-danger/40;
@@ -162,27 +182,27 @@
 
   /* Keyboard hint printed inside a button */
   .kbd {
-    @apply ml-1 px-1 rounded text-[10px] font-medium bg-ink/10 text-ink-2;
+    @apply ml-1 px-1 rounded-sm text-xs font-medium bg-ink/10 text-ink-2;
   }
   .btn-primary .kbd {
-    @apply bg-white/20 text-white;
+    @apply bg-on-accent/20 text-on-accent;
   }
 
   /* Filter chip: toggles like the segmented control, but stands alone */
   .chip {
-    @apply inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium text-ink-2 border border-line bg-surface hover:text-ink;
-    transition: background-color 150ms ease-out, color 150ms ease-out;
+    @apply inline-flex items-center gap-2 h-7 px-3 rounded text-xs font-medium text-ink-2 border border-line bg-surface hover:text-ink hover:bg-ink/5;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
   }
   .chip[aria-pressed='true'] {
-    @apply bg-ink text-bg border-ink;
+    @apply bg-accent/10 text-accent border-accent/50;
   }
 
   /* Segmented control */
   .segmented {
-    @apply inline-flex p-0.5 rounded-lg bg-ink/5;
+    @apply inline-flex p-0.5 rounded bg-ink/5;
   }
   .segmented button {
-    @apply h-7 px-3 rounded-md text-xs font-medium text-ink-2;
+    @apply h-7 px-3 rounded-sm text-xs font-medium text-ink-2;
   }
   .segmented button[aria-pressed='true'] {
     @apply bg-surface text-ink shadow-sm;
@@ -195,26 +215,22 @@
     @apply text-xs text-danger;
   }
 
-  /* Translucent chrome: content scrolls underneath */
+  /* Solid header bar */
   .toolbar {
-    @apply sticky top-0 z-10 border-b border-line/60;
-    background: rgb(var(--bg) / 0.72);
-    backdrop-filter: blur(20px) saturate(180%);
+    @apply sticky top-0 z-10 bg-bg border-b border-line;
   }
 
-  /* Modal sheet (native <dialog>): dim to focus, materialize on enter */
+  /* Modal sheet (native <dialog>): dim to focus, appears without fuss */
   .sheet {
-    @apply m-auto w-full max-w-lg rounded-2xl bg-surface text-ink border border-line p-0 shadow-2xl;
+    @apply m-auto w-full max-w-lg rounded-md bg-surface text-ink border border-line p-0;
     overscroll-behavior: contain;
-    animation: sheet-in 180ms ease-out;
   }
   .sheet::backdrop {
-    background: rgb(0 0 0 / 0.3);
-    animation: fade-in 180ms ease-out;
+    background: rgb(0 0 0 / 0.4);
   }
 
   .page {
-    @apply p-6 space-y-5;
+    @apply p-6 space-y-4;
   }
 
   /* Start-up loader */
@@ -237,9 +253,6 @@
   }
 }
 
-@keyframes sheet-in {
-  from { opacity: 0; transform: scale(0.97); }
-}
 @keyframes loader-breathe {
   50% { transform: scale(1.04); }
 }
@@ -250,20 +263,13 @@
 @keyframes skeleton-pulse {
   50% { opacity: 0.45; }
 }
-@keyframes fade-in {
-  from { opacity: 0; }
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .sheet, .sheet::backdrop, .menu-pop, .loader-logo, .skeleton { animation: none; }
+  .loader-logo, .skeleton { animation: none; }
   .loader-bar::after { animation-duration: 2.4s; }
-  .btn:active { transform: none; }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .toolbar { background: rgb(var(--bg)); backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
-  :root { --line: 110 110 115; }
+  :root { --line: 110 110 110; }
 }
 
 /* Scrollbars */
@@ -273,7 +279,7 @@
 }
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--ink) / 0.18);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--ink) / 0.32);

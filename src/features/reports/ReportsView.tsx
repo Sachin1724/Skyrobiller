@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../lib/friendlyError';
 import { Download, FileSpreadsheet, FileJson } from 'lucide-react';
 import { computeInvoice } from '../../lib/gst';
 import { listInvoices, listCreditNotes, listDebitNotes, financialYearOf, outstandingOf, paymentStatusOf, type Invoice, type CreditNote, type DebitNote } from '../../lib/db';
@@ -249,7 +250,7 @@ export const ReportsView: React.FC = () => {
         setCredits(notes);
         setDebits(raised);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
   }, [from, to]);
 
   useMenuAction({ 'export-sheet': () => exportCsv(), 'export-workbook': () => { exportWorkbook(); } });
@@ -264,7 +265,7 @@ export const ReportsView: React.FC = () => {
 
   const suffix = `${from}-to-${to}${status === 'all' ? '' : `-${status}`}`;
   const exportCsv = () => downloadCsv(`${kind}-${suffix}`, [report.columns, ...report.rows]);
-  const exportWorkbook = () => downloadWorkbook(`skyro-reports-${suffix}.xlsx`, shown, credits, debits).catch((e) => setError(`Excel export failed: ${e.message}`));
+  const exportWorkbook = () => downloadWorkbook(`skyro-reports-${suffix}.xlsx`, shown, credits, debits).catch((e) => setError(`Excel export failed. ${friendlyError(e)}`));
 
   // GSTR-1 is filed per calendar month and read by the GST offline tool as JSON
   const exportGstr1 = () => {

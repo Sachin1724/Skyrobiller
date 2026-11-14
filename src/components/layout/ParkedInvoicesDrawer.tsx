@@ -4,7 +4,7 @@ import { useNavStore } from '../../store/useNavStore';
 import { formatCurrencyINR } from '../../lib/utils';
 import { listDrafts, deleteDraft, type Draft } from '../../lib/db';
 import { Modal } from '../Modal';
-import { confirmSheet } from '../ConfirmSheet';
+import { confirmDialog } from '../ConfirmDialog';
 
 export const ParkedInvoicesDrawer: React.FC = () => {
   const { isParkedDrawerOpen, setParkedDrawerOpen, setCurrentModule, setActiveInvoiceDraftId } = useNavStore();
@@ -22,7 +22,7 @@ export const ParkedInvoicesDrawer: React.FC = () => {
   };
 
   const handleDelete = async (draftId: string) => {
-    if (!(await confirmSheet({ title: `Delete parked invoice ${draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return;
+    if (!(await confirmDialog({ title: `Delete parked invoice ${draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return;
     await deleteDraft(draftId).catch(() => {});
     reload();
   };
@@ -32,7 +32,7 @@ export const ParkedInvoicesDrawer: React.FC = () => {
       {parkedDrafts.length === 0 && <p className="empty">No parked invoices.</p>}
       <ul className="space-y-2 max-h-[60vh] overflow-y-auto overscroll-contain">
         {parkedDrafts.map((draft) => (
-          <li key={draft.draftId} className="flex items-center gap-3 p-3 rounded-xl border border-line">
+          <li key={draft.draftId} className="flex items-center gap-3 p-3 rounded-md border border-line">
             <div className="min-w-0 flex-1">
               <div className="font-medium truncate">{draft.customer?.businessName ?? 'No customer yet'}</div>
               <div className="text-xs text-ink-2 truncate">

@@ -7,6 +7,21 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
+    // One type scale for the whole app: 12 (hints, labels, badges), 13 (body, tables, buttons), 14 (section headings), 18 (titles, key figures)
+    fontSize: {
+      xs: ['12px', '16px'],
+      sm: ['13px', '18px'],
+      base: ['14px', '20px'],
+      lg: ['18px', '24px'],
+    },
+    // Radius: 4px for controls, 6px (md) for cards, sheets and menus
+    borderRadius: {
+      none: '0',
+      sm: '2px',
+      DEFAULT: '4px',
+      md: '6px',
+      full: '9999px',
+    },
     extend: {
       // Semantic tokens; values (light + dark) live in src/index.css
       colors: {
@@ -18,20 +33,13 @@ export default {
         'ink-2': token('ink-2'),
         'ink-3': token('ink-3'),
         accent: token('accent'),
+        'on-accent': token('on-accent'),
         danger: token('danger'),
         success: token('success'),
         warn: token('warn'),
       },
-      // Rounded rectangles, not pills: one tight radius scale for the whole app
-      borderRadius: {
-        DEFAULT: '3px',
-        md: '3px',
-        lg: '4px',
-        xl: '6px',
-        '2xl': '8px',
-      },
       fontFamily: {
-        sans: ['"Geist Variable"', '-apple-system', '"SF Pro Text"', '"Segoe UI Variable Text"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        sans: ['"Segoe UI Variable Text"', '"Segoe UI Variable"', '"Segoe UI"', 'system-ui', 'sans-serif'],
       },
     },
   },

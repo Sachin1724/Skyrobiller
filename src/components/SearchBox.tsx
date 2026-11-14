@@ -61,8 +61,8 @@ export function SearchBox<T>({ search, onPick, renderItem, label, placeholder, e
         className="field pl-8"
       />
       {open && (
-        <ul role="listbox" aria-label={label} className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface shadow-xl p-1">
-          {rows.length === 0 && <li className="px-2.5 py-2 text-ink-2">{emptyText}</li>}
+        <ul role="listbox" aria-label={label} className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto overscroll-contain rounded-md border border-line bg-surface shadow-md p-1">
+          {rows.length === 0 && <li className="px-3 py-2 text-ink-2">{emptyText}</li>}
           {rows.map((item, i) => (
             <li
               key={i}
@@ -71,7 +71,7 @@ export function SearchBox<T>({ search, onPick, renderItem, label, placeholder, e
               // mousedown, not click: fires before the input's blur closes the list
               onMouseDown={(e) => { e.preventDefault(); pick(item); }}
               onMouseEnter={() => setActive(i)}
-              className={`px-2.5 py-1.5 rounded-lg cursor-default ${i === active ? 'bg-accent text-white' : ''}`}
+              className={`px-3 py-2 rounded cursor-default ${i === active ? 'bg-accent text-on-accent' : ''}`}
             >
               {renderItem(item)}
             </li>

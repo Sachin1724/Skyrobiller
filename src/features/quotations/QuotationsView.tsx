@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { confirmSheet } from '../../components/ConfirmSheet';
+import { friendlyError } from '../../lib/friendlyError';
+import { confirmDialog } from '../../components/ConfirmDialog';
 import { Plus, Pencil, Trash2, ArrowRightCircle } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { listDrafts, saveDraft, deleteDraft, setQuotationStatus, newDraftId, type Draft, type QuotationStatus } from '../../lib/db';
 import { InvoiceEditor } from '../invoices/InvoiceEditor';
+import { RowMenu } from '../../components/RowMenu';
 
 // Lifecycle follows SolidInvoice's quote states (references/solidinvoice): draft, sent, accepted, declined, then converted
 const STATUSES: QuotationStatus[] = ['draft', 'sent', 'accepted', 'declined'];
@@ -16,7 +18,7 @@ export const QuotationsView: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const reload = () => listDrafts('quotation').then(setQuotations).catch((e) => setError(e.message));
+  const reload = () => listDrafts('quotation').then(setQuotations).catch((e) => setError(friendlyError(e)));
   useEffect(() => { if (!editingId) reload(); }, [editingId]);
   useMenuAction({ 'new-quotation': () => setEditingId(newDraftId('quotation')) });
 
@@ -24,7 +26,7 @@ export const QuotationsView: React.FC = () => {
     return <InvoiceEditor key={editingId} draftId={editingId} kind="quotation" onClose={() => setEditingId(null)} />;
   }
 
-  const run = (action: Promise<unknown>) => action.then(reload).catch((e) => setError(e.message));
+  const run = (action: Promise<unknown>) => action.then(reload).catch((e) => setError(friendlyError(e)));
 
   // Copies the quotation into a fresh invoice draft and opens it; the quotation is kept and marked converted
   const handleConvert = async (q: Draft) => {
@@ -35,12 +37,12 @@ export const QuotationsView: React.FC = () => {
       setActiveInvoiceDraftId(draftId);
       setCurrentModule('invoices');
     } catch (e: any) {
-      setError(e.message);
+      setError(friendlyError(e));
     }
   };
 
   const handleDelete = async (q: Draft) => {
-    if (await confirmSheet({ title: `Delete quotation ${q.draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) run(deleteDraft(q.draftId));
+    if (await confirmDialog({ title: `Delete quotation ${q.draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) run(deleteDraft(q.draftId));
   };
 
   const today = todayISO();
@@ -94,15 +96,14 @@ export const QuotationsView: React.FC = () => {
                   )}
                 </td>
                 <td className="num">
-                  <button onClick={() => handleConvert(q)} disabled={!q.customer || q.items.length === 0} className="btn btn-icon" aria-label={`Convert ${q.draftId} to invoice`} title="Convert to invoice">
-                    <ArrowRightCircle className="h-4 w-4" aria-hidden />
-                  </button>
-                  <button onClick={() => setEditingId(q.draftId)} className="btn btn-icon" aria-label={`Edit ${q.draftId}`} title="Edit">
-                    <Pencil className="h-4 w-4" aria-hidden />
-                  </button>
-                  <button onClick={() => handleDelete(q)} className="btn btn-icon btn-danger" aria-label={`Delete ${q.draftId}`} title="Delete">
-                    <Trash2 className="h-4 w-4" aria-hidden />
-                  </button>
+                  <RowMenu
+                    label={`Actions for ${q.draftId}`}
+                    items={[
+                      { label: 'Edit quotation', icon: Pencil, onClick: () => setEditingId(q.draftId) },
+                      { label: 'Convert to invoice', icon: ArrowRightCircle, onClick: () => handleConvert(q), disabled: !q.customer || q.items.length === 0, title: !q.customer || q.items.length === 0 ? 'Add a customer and items first' : undefined },
+                      { label: 'Delete quotation', icon: Trash2, danger: true, onClick: () => handleDelete(q) },
+                    ]}
+                  />
                 </td>
               </tr>
             ))}

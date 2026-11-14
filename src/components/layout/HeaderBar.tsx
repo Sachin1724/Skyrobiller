@@ -31,7 +31,7 @@ export const HeaderBar: React.FC = () => {
 
   return (
     <header className="toolbar h-14 px-6 flex items-center justify-between">
-      <h1 className="text-xl font-semibold tracking-tight">{moduleTitles[currentModule]}</h1>
+      <h1 className="text-lg font-semibold tracking-tight">{moduleTitles[currentModule]}</h1>
 
       <div data-tour="header-actions" className="flex items-center gap-2">
         <button onClick={toggleParkedDrawer} className="btn">

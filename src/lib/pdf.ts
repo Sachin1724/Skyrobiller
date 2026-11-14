@@ -24,7 +24,7 @@ export const TEMPLATES = {
 export type TemplateId = keyof typeof TEMPLATES;
 
 export const ACCENT_PRESETS = {
-  Blue: '#0071e3', Indigo: '#4f46e5', Slate: '#334155', Teal: '#0f766e', Forest: '#15803d', Plum: '#7e22ce', Rust: '#c2410c', Crimson: '#be123c', Ink: '#111827',
+  Blue: '#2a54e0', Indigo: '#4f46e5', Slate: '#334155', Teal: '#0f766e', Forest: '#15803d', Plum: '#7e22ce', Rust: '#c2410c', Crimson: '#be123c', Ink: '#111827',
 } as const;
 
 export const DENSITIES = { compact: 'Compact', comfortable: 'Comfortable', spacious: 'Spacious' } as const;
@@ -368,7 +368,7 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>${esc(d.number)}</title><style>${CSS}</style></head>
-<body class="${look.template} d-${look.density}" style="--accent: ${/^#[0-9a-f]{6}$/i.test(look.accent) ? look.accent : '#0071e3'}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
+<body class="${look.template} d-${look.density}" style="--accent: ${/^#[0-9a-f]{6}$/i.test(look.accent) ? look.accent : '#2a54e0'}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
 }
 
 export const invoiceDocument = (inv: Invoice): PrintableDocument => ({

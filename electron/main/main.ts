@@ -47,7 +47,7 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f5f5f7', // matches --bg in src/index.css
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#202020' : '#f3f3f3', // matches --bg in src/index.css
     show: true, // Make visible immediately on desktop
     webPreferences: {
       preload,

@@ -38,7 +38,7 @@ export const CommandPalette: React.FC<{ commands: Command[]; onRun: (id: string)
         value={query}
         onChange={(e) => { setQuery(e.target.value); setActive(0); }}
         onKeyDown={onKeyDown}
-        className="w-full h-12 px-5 bg-transparent text-[15px] border-b border-line outline-none placeholder:text-ink-3"
+        className="w-full h-12 px-4 bg-transparent text-base border-b border-line outline-none placeholder:text-ink-3"
       />
       <ul id="palette-list" role="listbox" className="max-h-80 overflow-y-auto p-2">
         {shown.length === 0 && <li className="empty">Nothing matches “{query}”.</li>}
@@ -50,10 +50,10 @@ export const CommandPalette: React.FC<{ commands: Command[]; onRun: (id: string)
             aria-selected={i === active}
             onMouseMove={() => setActive(i)}
             onClick={() => run(c)}
-            className={`flex items-center justify-between gap-4 h-9 px-3 rounded-lg cursor-default ${i === active ? 'bg-accent text-white' : ''}`}
+            className={`flex items-center justify-between gap-4 h-9 px-3 rounded cursor-default ${i === active ? 'bg-accent text-on-accent' : ''}`}
           >
             <span>{c.label}</span>
-            {c.hint && <span className={`text-xs ${i === active ? 'text-white/80' : 'text-ink-3'}`}>{c.hint}</span>}
+            {c.hint && <span className={`text-xs ${i === active ? 'text-on-accent/80' : 'text-ink-3'}`}>{c.hint}</span>}
           </li>
         ))}
       </ul>

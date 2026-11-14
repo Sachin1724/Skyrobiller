@@ -74,7 +74,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     invoicePrefix: 'SKY',
     terms: 'Goods once sold will not be taken back. Subject to Bhubaneswar jurisdiction.',
     template: 'minimal',
-    accent: '#0071e3',
+    accent: '#2a54e0',
     density: 'comfortable',
     signature: '',
     logo: '',

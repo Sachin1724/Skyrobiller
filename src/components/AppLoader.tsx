@@ -15,10 +15,10 @@ export const AppLoader: React.FC<{ ready: boolean }> = ({ ready }) => {
   if (gone) return null;
   return (
     <div ref={ref} role="status" aria-label="Starting Skyro Biller" className="fixed inset-0 z-[100] grid place-items-center bg-bg">
-      <div className="flex flex-col items-center gap-5">
-        <img src={logo} alt="" width={72} height={72} className="loader-logo h-[72px] w-[72px] rounded-2xl" />
+      <div className="flex flex-col items-center gap-4">
+        <img src={logo} alt="" width={72} height={72} className="loader-logo h-[72px] w-[72px] rounded-md" />
         <div className="text-center">
-          <div className="text-[15px] font-semibold tracking-tight">Skyro Biller</div>
+          <div className="text-base font-semibold tracking-tight">Skyro Biller</div>
           <div className="text-xs text-ink-2">Opening your books…</div>
         </div>
         <div className="loader-bar" aria-hidden />

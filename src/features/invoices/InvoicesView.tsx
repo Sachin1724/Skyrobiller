@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { toast } from '../../store/useToastStore';
+import { friendlyError } from '../../lib/friendlyError';
 import { Search, Play, Trash2, FileDown, FileText, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
@@ -9,7 +11,7 @@ import {
 } from '../../lib/db';
 import { invoiceDocument, creditNoteDocument, debitNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { Modal } from '../../components/Modal';
-import { confirmSheet } from '../../components/ConfirmSheet';
+import { confirmDialog } from '../../components/ConfirmDialog';
 import { RowMenu } from '../../components/RowMenu';
 import { Reveal } from '../../components/Reveal';
 import { SkeletonRows, EmptyState } from '../../components/Skeleton';
@@ -45,7 +47,6 @@ export const InvoicesView: React.FC = () => {
   const [crediting, setCrediting] = useState<Invoice | null>(null);
   const [debiting, setDebiting] = useState<Invoice | null>(null);
   const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice?: Invoice } | null>(null);
-  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   const isEditorOpen = activeInvoiceDraftId !== null;
@@ -53,14 +54,14 @@ export const InvoicesView: React.FC = () => {
   const reload = () =>
     Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes(), listDebitNotes()])
       .then(([d, i, c, dn]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); setLoaded(true); })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
   // Refresh when the editor closes and when the parked list closes (it can delete drafts)
   useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen, isParkedDrawerOpen]);
 
   // File > Save As PDF and File > Print work on the invoice or credit note open in the viewer
   useMenuAction({
-    'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(e.message)); },
-    'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
+    'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(friendlyError(e))); },
+    'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(friendlyError(e))); },
   });
 
   if (activeInvoiceDraftId !== null) {
@@ -71,7 +72,7 @@ export const InvoicesView: React.FC = () => {
         draftId={activeInvoiceDraftId}
         kind="invoice"
         onClose={(issuedNumber) => {
-          setNotice(issuedNumber ? `Issued as ${issuedNumber}.` : '');
+          if (issuedNumber) toast.success(`Issued as ${issuedNumber}.`);
           setTab(issuedNumber ? 'issued' : 'drafts');
           setActiveInvoiceDraftId(null);
         }}
@@ -80,15 +81,15 @@ export const InvoicesView: React.FC = () => {
     );
   }
 
-  const fail = (e: any) => setError(e.message);
+  const fail = (e: any) => setError(friendlyError(e));
   const run = (action: Promise<unknown>) => action.then(reload).catch(fail);
 
   const handleDeleteDraft = async (d: Draft) => {
-    if (await confirmSheet({ title: `Delete draft ${d.draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) run(deleteDraft(d.draftId));
+    if (await confirmDialog({ title: `Delete draft ${d.draftId}?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })) run(deleteDraft(d.draftId));
   };
 
   const handleCancel = async (inv: Invoice) => {
-    if (await confirmSheet({
+    if (await confirmDialog({
       title: `Cancel invoice ${inv.invoiceNumber}?`, details: [['Customer', inv.customer.businessName], ['Total', formatCurrencyINR(inv.total)]],
       message: 'The number stays used and the invoice is kept as cancelled. This cannot be undone.', confirmLabel: 'Cancel Invoice', cancelLabel: 'Keep Invoice', danger: true,
     })) run(cancelInvoice(inv.id));
@@ -150,8 +151,6 @@ export const InvoicesView: React.FC = () => {
           ))}
         </div>
       )}
-
-      <p aria-live="polite" className="text-success font-medium empty:hidden">{notice}</p>
       {error && <p role="alert" className="error">{error}</p>}
 
       <div className="card overflow-hidden">
@@ -251,12 +250,13 @@ export const InvoicesView: React.FC = () => {
                   <td className="num">{d.items.length}</td>
                   <td className="num font-medium">{formatCurrencyINR(d.total)}</td>
                   <td className="num">
-                    <button onClick={() => setActiveInvoiceDraftId(d.draftId)} className="btn btn-icon" aria-label={`Resume ${d.draftId}`} title="Resume">
-                      <Play className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button onClick={() => handleDeleteDraft(d)} className="btn btn-icon btn-danger" aria-label={`Delete ${d.draftId}`} title="Delete">
-                      <Trash2 className="h-4 w-4" aria-hidden />
-                    </button>
+                    <RowMenu
+                      label={`Actions for ${d.draftId}`}
+                      items={[
+                        { label: 'Resume draft', icon: Play, onClick: () => setActiveInvoiceDraftId(d.draftId) },
+                        { label: 'Delete draft', icon: Trash2, danger: true, onClick: () => handleDeleteDraft(d) },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -291,12 +291,13 @@ export const InvoicesView: React.FC = () => {
                   <td className="max-w-[14rem]"><div className="truncate">{c.reason}</div></td>
                   <td className="num font-medium">{formatCurrencyINR(c.total)}</td>
                   <td className="num">
-                    <button onClick={() => openPreview(creditNoteDocument(c))} className="btn btn-icon" aria-label={`View ${c.creditNumber}`} title="View">
-                      <Eye className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button onClick={() => savePdf(creditNoteDocument(c), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${c.creditNumber}`} title="Save PDF">
-                      <FileDown className="h-4 w-4" aria-hidden />
-                    </button>
+                    <RowMenu
+                      label={`Actions for ${c.creditNumber}`}
+                      items={[
+                        { label: 'View', icon: Eye, onClick: () => openPreview(creditNoteDocument(c)) },
+                        { label: 'Save PDF', icon: FileDown, onClick: () => savePdf(creditNoteDocument(c), company).catch(fail) },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -331,12 +332,13 @@ export const InvoicesView: React.FC = () => {
                   <td className="max-w-[14rem]"><div className="truncate">{d.reason}</div></td>
                   <td className="num font-medium">{formatCurrencyINR(d.total)}</td>
                   <td className="num">
-                    <button onClick={() => openPreview(debitNoteDocument(d))} className="btn btn-icon" aria-label={`View ${d.debitNumber}`} title="View">
-                      <Eye className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button onClick={() => savePdf(debitNoteDocument(d), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${d.debitNumber}`} title="Save PDF">
-                      <FileDown className="h-4 w-4" aria-hidden />
-                    </button>
+                    <RowMenu
+                      label={`Actions for ${d.debitNumber}`}
+                      items={[
+                        { label: 'View', icon: Eye, onClick: () => openPreview(debitNoteDocument(d)) },
+                        { label: 'Save PDF', icon: FileDown, onClick: () => savePdf(debitNoteDocument(d), company).catch(fail) },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -360,7 +362,7 @@ export const InvoicesView: React.FC = () => {
       )}
       {preview && (
         <Modal wide title={`${preview.doc.title} · ${preview.doc.number}`} onClose={() => setPreview(null)}>
-          <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded-lg border border-line bg-white" />
+          <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded border border-line bg-white" />
           <div className="flex justify-end pt-4">
             <button onClick={() => printDocument(preview.doc, company).catch(fail)} className="btn mr-2">
               <Printer className="h-4 w-4" aria-hidden />

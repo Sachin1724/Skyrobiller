@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../lib/friendlyError';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { listInvoices, listPayments, outstandingOf, type Invoice, type Payment } from '../../lib/db';
 import { PaymentModal } from './PaymentModal';
@@ -12,7 +13,7 @@ export const PaymentsView: React.FC = () => {
   const reload = () =>
     Promise.all([listInvoices(), listPayments()])
       .then(([i, p]) => { setInvoices(i); setPayments(p); })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
   useEffect(() => { reload(); }, []);
 
   const unpaid = invoices.filter((i) => outstandingOf(i) >= 0.01).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
@@ -23,7 +24,7 @@ export const PaymentsView: React.FC = () => {
       {error && <p role="alert" className="error">{error}</p>}
 
       <section className="space-y-2">
-        <h2 className="text-[15px] font-semibold tracking-tight">
+        <h2 className="text-base font-semibold tracking-tight">
           Outstanding · <span className="tabular-nums">{formatCurrencyINR(unpaid.reduce((sum, i) => sum + outstandingOf(i), 0))}</span>
         </h2>
         <div className="card overflow-hidden">
@@ -62,7 +63,7 @@ export const PaymentsView: React.FC = () => {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-[15px] font-semibold tracking-tight">Payments Received</h2>
+        <h2 className="text-base font-semibold tracking-tight">Payments Received</h2>
         <div className="card overflow-hidden">
           <table className="tbl">
             <thead>

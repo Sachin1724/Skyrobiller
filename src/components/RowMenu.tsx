@@ -50,7 +50,7 @@ export const RowMenu: React.FC<{ label: string; items: RowMenuItem[] }> = ({ lab
       disabled={item.disabled}
       title={item.title}
       onClick={() => { setPos(null); item.onClick(); }}
-      className={`flex w-full items-center gap-2.5 h-8 px-3 rounded-md text-left text-[13px] disabled:opacity-40 hover:bg-ink/5 focus-visible:bg-ink/5 ${item.danger ? 'text-danger' : ''}`}
+      className={`flex w-full items-center gap-3 h-8 px-3 rounded text-left text-sm disabled:opacity-40 hover:bg-ink/5 focus-visible:bg-ink/5 ${item.danger ? 'text-danger' : ''}`}
     >
       <item.icon className="h-4 w-4 shrink-0" aria-hidden />
       {item.label}

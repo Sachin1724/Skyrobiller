@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../lib/friendlyError';
 import { Modal } from '../../components/Modal';
 import { addPayment, listPaymentsForInvoice, outstandingOf, type Invoice, type Payment } from '../../lib/db';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
@@ -43,7 +44,7 @@ export const PaymentModal: React.FC<{ invoice: Invoice; onClose: (saved: boolean
       });
       onClose(true);
     } catch (err: any) {
-      setError(`${err.message}. Enter ${formatCurrencyINR(due)} or less.`);
+      setError(`${friendlyError(err)} Enter ${formatCurrencyINR(due)} or less.`);
       setBusy(false);
     }
   };
@@ -123,7 +124,7 @@ export const PaymentModal: React.FC<{ invoice: Invoice; onClose: (saved: boolean
         </div>
 
         {/* Live status after payment */}
-        <div className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-surface-2 border border-line">
+        <div className="flex items-center justify-between text-xs px-3 py-2 rounded bg-surface-2 border border-line">
           <span className="text-ink-2">Status after this payment:</span>
           {isFull ? (
             <span className="badge badge-success">Paid in Full (₹0.00 Remaining)</span>
@@ -138,7 +139,7 @@ export const PaymentModal: React.FC<{ invoice: Invoice; onClose: (saved: boolean
         {history.length > 0 && (
           <div className="space-y-1.5 pt-2 border-t border-line">
             <div className="text-xs font-semibold text-ink-2">Prior Payments ({history.length})</div>
-            <div className="max-h-28 overflow-y-auto rounded-lg border border-line bg-surface-2/40">
+            <div className="max-h-28 overflow-y-auto rounded border border-line bg-surface-2/40">
               <table className="tbl text-xs">
                 <thead>
                   <tr>

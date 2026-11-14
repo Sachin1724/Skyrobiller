@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { toast } from '../../store/useToastStore';
+import { friendlyError } from '../../lib/friendlyError';
 import { Plus, Search, Pencil, Upload, Boxes } from 'lucide-react';
 import { formatCurrencyINR } from '../../lib/utils';
 import { searchProducts, saveProduct, importProducts, type Product } from '../../lib/db';
 import { csvRecords, downloadCsv } from '../../lib/csv';
 import { Modal } from '../../components/Modal';
+import { RowMenu } from '../../components/RowMenu';
 import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 import { useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
@@ -15,10 +18,9 @@ export const ProductsView: React.FC = () => {
   // undefined = closed, null = adding, Product = editing
   const [editing, setEditing] = useState<Product | null | undefined>(undefined);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const reload = () => searchProducts(searchTerm).then((rows) => { setProducts(rows); setLoaded(true); }).catch((e) => setError(e.message));
+  const reload = () => searchProducts(searchTerm).then((rows) => { setProducts(rows); setLoaded(true); }).catch((e) => setError(friendlyError(e)));
   useEffect(() => { reload(); }, [searchTerm]);
   const defaultGstRate = useSystemStore((s) => s.prefs.defaultGstRate);
   useMenuAction({ 'new-product': () => openForm(null), 'import-products': () => fileInput.current?.click() });
@@ -30,7 +32,6 @@ export const ProductsView: React.FC = () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setNotice('');
     try {
       const records = csvRecords(await file.text(), ['sku', 'name', 'hsn', 'gst_rate', 'price']);
       const problems: string[] = [];
@@ -47,10 +48,10 @@ export const ProductsView: React.FC = () => {
       if (problems.length) throw new Error(`Nothing was imported. Fix these rows and import again. ${problems.slice(0, 5).join('. ')}${problems.length > 5 ? `. And ${problems.length - 5} more.` : '.'}`);
       await importProducts(rows);
       setError('');
-      setNotice(`Imported ${rows.length} products. Existing SKUs were updated.`);
+      toast.success(`Imported ${rows.length} products. Existing SKUs were updated.`);
       reload();
     } catch (err: any) {
-      setError(err.message);
+      setError(friendlyError(err));
     }
   };
 
@@ -78,7 +79,7 @@ export const ProductsView: React.FC = () => {
       setEditing(undefined);
       reload();
     } catch (err: any) {
-      setError(/UNIQUE/.test(err.message) ? `SKU ${f.sku.toUpperCase()} is already in the catalogue. Use a different SKU.` : err.message);
+      setError(friendlyError(err));
     }
   };
 
@@ -111,8 +112,6 @@ export const ProductsView: React.FC = () => {
           </button>
         </div>
       </div>
-
-      <p aria-live="polite" className="text-success font-medium empty:hidden">{notice}</p>
       {error && editing === undefined && <p role="alert" className="error">{error}</p>}
 
       <div className="card overflow-hidden">
@@ -153,9 +152,7 @@ export const ProductsView: React.FC = () => {
                 <td className="num">{item.gstRate}%</td>
                 <td className="num font-medium">{formatCurrencyINR(item.defaultPrice)}</td>
                 <td className="num">
-                  <button onClick={() => openForm(item)} className="btn btn-icon" aria-label={`Edit ${item.sku}`}>
-                    <Pencil className="h-3.5 w-3.5" aria-hidden />
-                  </button>
+                  <RowMenu label={`Actions for ${item.sku}`} items={[{ label: 'Edit product', icon: Pencil, onClick: () => openForm(item) }]} />
                 </td>
               </tr>
             ))}

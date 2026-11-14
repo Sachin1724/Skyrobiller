@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { friendlyError } from '../../lib/friendlyError';
 import { FileText, FileCheck2, Printer, FileDown, ArrowRight, CheckCircle2, Circle, CalendarDays, TrendingUp, Wallet, PenLine } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction, type AppModule } from '../../store/useNavStore';
@@ -47,18 +48,18 @@ export const DashboardView: React.FC = () => {
         setDraftCount(drafts.length);
         setOpenQuotes(quotes.filter((q) => q.status === 'draft' || q.status === 'sent').length);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
   }, []);
 
   useMenuAction({
-    'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(e.message)); },
-    'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
+    'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(friendlyError(e))); },
+    'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(friendlyError(e))); },
   });
 
   const openPreview = (doc: PrintableDocument, invoice: Invoice) => {
     buildLook(doc, company)
       .then((look) => setPreview({ doc, html: documentHtml(doc, look), invoice }))
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(friendlyError(e)));
   };
 
   const today = todayISO();
@@ -85,10 +86,10 @@ export const DashboardView: React.FC = () => {
       {error && <p role="alert" className="error">{error}</p>}
 
       {showChecklist && (
-        <section data-reveal className="card p-5" aria-label="Setup checklist">
+        <section data-reveal className="card p-4" aria-label="Setup checklist">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-[15px] font-semibold tracking-tight">Get set up</h2>
+              <h2 className="text-base font-semibold tracking-tight">Get set up</h2>
               <p className="text-xs text-ink-2">{stepsDone} of {steps.length} done. Each step opens the screen that finishes it.</p>
             </div>
             <button onClick={() => { setSetting('setupDismissed', true).catch(() => undefined); setSetup((x) => x && { ...x, dismissed: true }); }} className="btn btn-plain">Hide</button>
@@ -99,7 +100,7 @@ export const DashboardView: React.FC = () => {
           <ul className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6">
             {steps.map((step) => (
               <li key={step.label}>
-                <button onClick={() => setCurrentModule(step.go)} disabled={step.done} className="flex w-full items-center gap-2.5 h-9 text-left disabled:cursor-default hover:text-accent disabled:hover:text-ink">
+                <button onClick={() => setCurrentModule(step.go)} disabled={step.done} className="flex w-full items-center gap-3 h-9 text-left disabled:cursor-default hover:text-accent disabled:hover:text-ink">
                   {step.done ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" aria-hidden /> : <Circle className="h-4 w-4 text-ink-3 shrink-0" aria-hidden />}
                   <span className={step.done ? 'text-ink-2 line-through' : 'font-medium'}>{step.label}</span>
                   {!step.done && <ArrowRight className="h-3.5 w-3.5 ml-auto" aria-hidden />}
@@ -115,11 +116,11 @@ export const DashboardView: React.FC = () => {
           <div key={s.label} data-reveal className="card p-4 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-medium text-ink-2">{s.label}</div>
-              <span className="grid h-7 w-7 place-items-center rounded-lg bg-accent/10 text-accent"><s.icon className="h-3.5 w-3.5" aria-hidden /></span>
+              <span className="grid h-7 w-7 place-items-center rounded bg-accent/10 text-accent"><s.icon className="h-3.5 w-3.5" aria-hidden /></span>
             </div>
             {loaded ? (
               <>
-                <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums truncate">{s.value}</div>
+                <div className="mt-2 text-lg font-semibold tracking-tight tabular-nums truncate">{s.value}</div>
                 <div className="mt-0.5 text-xs text-ink-2">{s.detail}</div>
               </>
             ) : (
@@ -141,7 +142,7 @@ export const DashboardView: React.FC = () => {
       </div>
 
       <section data-reveal className="space-y-2">
-        <h2 className="text-[15px] font-semibold tracking-tight">Recent Invoices</h2>
+        <h2 className="text-base font-semibold tracking-tight">Recent Invoices</h2>
         <div className="card overflow-hidden">
           <table className="tbl">
             <thead>
@@ -182,7 +183,7 @@ export const DashboardView: React.FC = () => {
 
       {preview && (
         <Modal wide title={`${preview.doc.title} · ${preview.doc.number}`} onClose={() => setPreview(null)}>
-          <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded-lg border border-line bg-white" />
+          <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded border border-line bg-white" />
           <div className="flex justify-end pt-4">
             <button
               onClick={() => {
@@ -194,11 +195,11 @@ export const DashboardView: React.FC = () => {
               <ArrowRight className="h-4 w-4" aria-hidden />
               Open in Invoices
             </button>
-            <button onClick={() => printDocument(preview.doc, company).catch((e) => setError(e.message))} className="btn mr-2">
+            <button onClick={() => printDocument(preview.doc, company).catch((e) => setError(friendlyError(e)))} className="btn mr-2">
               <Printer className="h-4 w-4" aria-hidden />
               Print
             </button>
-            <button onClick={() => savePdf(preview.doc, company).catch((e) => setError(e.message))} className="btn btn-primary">
+            <button onClick={() => savePdf(preview.doc, company).catch((e) => setError(friendlyError(e)))} className="btn btn-primary">
               <FileDown className="h-4 w-4" aria-hidden />
               Save PDF
             </button>
