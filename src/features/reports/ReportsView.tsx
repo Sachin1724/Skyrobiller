@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { friendlyError } from '../../lib/friendlyError';
-import { Download, FileSpreadsheet, FileJson } from 'lucide-react';
+import { Download, FileSpreadsheet, FileJson, Info, AlertTriangle } from 'lucide-react';
 import { computeInvoice } from '../../lib/gst';
 import { listInvoices, listCreditNotes, listDebitNotes, financialYearOf, outstandingOf, paymentStatusOf, type Invoice, type CreditNote, type DebitNote } from '../../lib/db';
 import { buildGstr1, isB2cl } from '../../lib/gstr1.ts';
@@ -228,12 +228,56 @@ async function downloadWorkbook(fileName: string, invoices: Invoice[], credits: 
 }
 
 type StatusFilter = 'all' | 'paid' | 'unpaid';
+type Period = 'month' | 'lastMonth' | 'quarter' | 'fy' | 'custom';
+const PERIODS: [Period, string][] = [['month', 'This month'], ['lastMonth', 'Last month'], ['quarter', 'This quarter'], ['fy', 'This financial year'], ['custom', 'Custom range']];
+
+// Date range for each preset, as YYYY-MM-DD. Quarters are the Indian financial ones: Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar.
+function rangeFor(period: Exclude<Period, 'custom'>, today: string): { from: string; to: string } {
+  const [y, m] = today.split('-').map(Number);
+  const monthStart = (yy: number, mm: number) => `${yy}-${String(mm).padStart(2, '0')}-01`;
+  if (period === 'month') return { from: monthStart(y, m), to: today };
+  if (period === 'lastMonth') return monthBounds(`${m === 1 ? y - 1 : y}-${String(m === 1 ? 12 : m - 1).padStart(2, '0')}`);
+  if (period === 'quarter') {
+    const startMonth = m >= 4 && m <= 6 ? 4 : m >= 7 && m <= 9 ? 7 : m >= 10 ? 10 : 1;
+    return { from: monthStart(y, startMonth), to: today };
+  }
+  return { from: `${financialYearOf(today).slice(0, 4)}-04-01`, to: today };
+}
+
+const toDisplay = (iso: string) => iso.split('-').reverse().join('-'); // 2026-11-01 -> 01-11-2026
+const fromDisplay = (text: string) => {
+  const m = text.trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (!m) return null;
+  const iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) || d.getDate() !== Number(m[1]) ? null : iso;
+};
+
+// dd-mm-yyyy text box: the browser's date input follows the system's US layout, which does not match the tables
+const DateText: React.FC<{ label: string; value: string; onChange: (iso: string) => void }> = ({ label, value, onChange }) => {
+  const [text, setText] = useState(toDisplay(value));
+  const [bad, setBad] = useState(false);
+  React.useEffect(() => { setText(toDisplay(value)); setBad(false); }, [value]);
+  return (
+    <label className="label">{label}
+      <input
+        value={text}
+        placeholder="dd-mm-yyyy"
+        inputMode="numeric"
+        aria-invalid={bad || undefined}
+        onChange={(e) => { setText(e.target.value); const iso = fromDisplay(e.target.value); setBad(!iso && e.target.value !== ''); if (iso) onChange(iso); }}
+        className="field w-32 tabular-nums"
+      />
+    </label>
+  );
+};
 
 export const ReportsView: React.FC = () => {
   const company = useSystemStore((s) => s.company);
   const today = todayISO();
-  const [from, setFrom] = useState(`${today.slice(0, 7)}-01`);
-  const [to, setTo] = useState(today);
+  const [period, setPeriod] = useState<Period>('month');
+  const [custom, setCustom] = useState({ from: `${today.slice(0, 7)}-01`, to: today });
+  const { from, to } = period === 'custom' ? custom : rangeFor(period, today);
   const [kind, setKind] = useState('register');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -255,8 +299,6 @@ export const ReportsView: React.FC = () => {
 
   useMenuAction({ 'export-sheet': () => exportCsv(), 'export-workbook': () => { exportWorkbook(); } });
 
-  const setRange = (range: { from: string; to: string }) => { setFrom(range.from); setTo(range.to); };
-
   const shown = invoices.filter((i) => status === 'all' || (status === 'paid') === (outstandingOf(i) < 0.01));
   const isAudit = kind === 'audit'; // not a sheet: it reads its own table and is not part of the Excel workbook
   const report = REPORTS[isAudit ? 'register' : kind].build(shown, credits, debits);
@@ -269,7 +311,7 @@ export const ReportsView: React.FC = () => {
 
   // GSTR-1 is filed per calendar month and read by the GST offline tool as JSON
   const exportGstr1 = () => {
-    if (from.slice(0, 7) !== to.slice(0, 7)) { setError('GSTR-1 is filed one month at a time. Pick a single month first.'); return; }
+    if (from.slice(0, 7) !== to.slice(0, 7)) { setError('GSTR-1 is filed one month at a time. Choose This month, Last month, or a custom range inside one month.'); return; }
     const gstr1 = buildGstr1({ gstin: company.gstin, period: to.slice(0, 7), invoices: allInvoices, credits, debits });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(gstr1, null, 1)], { type: 'application/json' }));
@@ -281,42 +323,19 @@ export const ReportsView: React.FC = () => {
 
   const group = isAudit ? 'System' : REPORTS[kind].group;
   const pickGroup = (g: string) => setKind(g === 'System' ? 'audit' : Object.keys(REPORTS).find((id) => REPORTS[id].group === g)!);
+  const b2clCount = shown.filter((i) => isB2cl(i, i.total)).length;
+  // Zeros are noise in a wide table: a dash lets the real figures stand out (rates keep their 0)
+  const cellText = (cell: Cell, column: string) => (typeof cell !== 'number' ? cell : cell === 0 && !/rate/i.test(column) ? '—' : number.format(cell));
 
   return (
     <div className="page">
-      <div className="segmented" role="tablist" aria-label="Report group">
-        {[...GROUPS, 'System'].map((g) => (
-          <button key={g} role="tab" aria-selected={group === g} aria-pressed={group === g} onClick={() => pickGroup(g)}>{g === 'Bills' ? 'Sales' : g === 'Payments' ? 'Receivables' : g === 'System' ? 'Audit Log' : g}</button>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-end gap-3">
-        {!isAudit && (
-          <label className="label">Report
-            <select value={kind} onChange={(e) => setKind(e.target.value)} className="field w-80">
-              {Object.entries(REPORTS).filter(([, r]) => r.group === group).map(([id, r]) => <option key={id} value={id}>{r.label}</option>)}
-            </select>
-          </label>
-        )}
-        <label className="label">Month
-          <input type="month" value={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : ''} max={today.slice(0, 7)} onChange={(e) => e.target.value && setRange(monthBounds(e.target.value))} className="field" />
-        </label>
-        <label className="label">From
-          <input type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} className="field" />
-        </label>
-        <label className="label">To
-          <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} className="field" />
-        </label>
-        <button onClick={() => setRange({ from: `${financialYearOf(today).slice(0, 4)}-04-01`, to: today })} className="btn">This Financial Year</button>
-        {!isAudit && (
-          <div className="label">Payment
-            <div className="segmented" role="group" aria-label="Payment status">
-              {(['all', 'paid', 'unpaid'] as const).map((s) => (
-                <button key={s} aria-pressed={status === s} onClick={() => setStatus(s)}>{s[0].toUpperCase() + s.slice(1)}</button>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className={`flex gap-2 ml-auto ${isAudit ? 'hidden' : ''}`}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="segmented" role="tablist" aria-label="Report group">
+          {[...GROUPS, 'System'].map((g) => (
+            <button key={g} role="tab" aria-selected={group === g} aria-pressed={group === g} onClick={() => pickGroup(g)}>{g === 'Bills' ? 'Sales' : g === 'Payments' ? 'Receivables' : g === 'System' ? 'Audit Log' : g}</button>
+          ))}
+        </div>
+        <div className={`flex gap-2 ${isAudit ? 'hidden' : ''}`}>
           {group === 'GST Filing' && (
             <button onClick={exportGstr1} disabled={allInvoices.length === 0 && credits.length === 0 && debits.length === 0} className="btn" title="JSON file for the GST offline tool: B2B, B2C Large and Small, notes, HSN, documents issued">
               <FileJson className="h-4 w-4" aria-hidden />
@@ -334,12 +353,60 @@ export const ReportsView: React.FC = () => {
         </div>
       </div>
 
+      {/* One row of filters: Report, Period, Payment */}
+      <div className="flex items-end gap-4">
+        {!isAudit && (
+          <label className="label min-w-0">Report
+            <select value={kind} onChange={(e) => setKind(e.target.value)} className="field w-72">
+              {Object.entries(REPORTS).filter(([, r]) => r.group === group).map(([id, r]) => <option key={id} value={id}>{r.label}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="label">Period
+          <select value={period} onChange={(e) => { const next = e.target.value as Period; if (next === 'custom') setCustom({ from, to }); setPeriod(next); }} className="field w-44">
+            {PERIODS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        {period === 'custom' ? (
+          <>
+            <DateText label="From" value={custom.from} onChange={(iso) => setCustom((c) => ({ ...c, from: iso }))} />
+            <DateText label="To" value={custom.to} onChange={(iso) => setCustom((c) => ({ ...c, to: iso }))} />
+          </>
+        ) : (
+          <span className="pb-2 text-ink-2 tabular-nums">{toDisplay(from)} to {toDisplay(to)}</span>
+        )}
+        {!isAudit && (
+          <div className="label ml-auto">Payment
+            <div className="segmented" role="group" aria-label="Payment status">
+              {(['all', 'paid', 'unpaid'] as const).map((s) => (
+                <button key={s} aria-pressed={status === s} onClick={() => setStatus(s)}>{s[0].toUpperCase() + s.slice(1)}</button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {error && <p role="alert" className="error">{error}</p>}
 
       {isAudit ? <AuditLog from={from} to={to} /> : <>
-      {/* Spreadsheet-style grid: ruled cells, header and totals stay in view while scrolling */}
-      <div className="card overflow-auto max-h-[calc(100vh-17rem)]">
-        <table className="grid-tbl">
+      {/* What this report does and does not include */}
+      <div className="flex items-start gap-3 rounded border border-line bg-ink/[0.03] px-3 py-2 text-xs text-ink-2">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
+        <p>
+          Cancelled invoices are excluded; credit and debit notes are listed separately. The Payment filter applies to invoice reports.
+          {group === 'GST Filing' && ' The sheets follow the GSTR-1 offline tool columns and the JSON file is built for its Import. Have your accountant confirm both before filing.'}
+        </p>
+      </div>
+      {group === 'GST Filing' && b2clCount > 0 && (
+        <div role="status" className="flex items-start gap-3 rounded border border-warn/50 bg-warn/10 px-3 py-2 text-sm text-warn">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p>{b2clCount} invoice{b2clCount > 1 ? 's are' : ' is'} B2C Large (unregistered customer in another state, above ₹1 lakh). {b2clCount > 1 ? 'They belong' : 'It belongs'} in the B2C Large sheet, not B2C Small.</p>
+        </div>
+      )}
+
+      {/* Spreadsheet-style grid: header and totals stay in view, and so do the first two columns when scrolling sideways */}
+      <div className="card overflow-auto max-h-[calc(100vh-20rem)]">
+        <table className="grid-tbl freeze-2">
           <thead>
             <tr>
               <th className="num w-10">#</th>
@@ -355,7 +422,7 @@ export const ReportsView: React.FC = () => {
                 <td className="num text-ink-2">{r + 1}</td>
                 {row.map((cell, i) => (
                   <td key={i} className={typeof cell === 'number' ? 'num' : ''}>
-                    {typeof cell === 'number' ? number.format(cell) : cell}
+                    {cellText(cell, report.columns[i])}
                   </td>
                 ))}
               </tr>
@@ -366,18 +433,13 @@ export const ReportsView: React.FC = () => {
               <tr>
                 <td />
                 {totals.map((t, i) => (
-                  <td key={i} className={t === null ? '' : 'num'}>{t === null ? (i === 0 ? `Total · ${report.rows.length} rows` : '') : number.format(t)}</td>
+                  <td key={i} className={t === null ? '' : 'num'}>{t === null ? (i === 0 ? `Total · ${report.rows.length} rows` : '') : t === 0 ? '—' : number.format(t)}</td>
                 ))}
               </tr>
             </tfoot>
           )}
         </table>
       </div>
-
-      <p className="text-xs text-ink-2">
-        Cancelled invoices are excluded. Invoice reports show invoices as issued; credit notes are listed separately. The Payment filter applies to invoice reports.
-        GST Filing sheets follow the GSTR-1 offline tool columns, and the GSTR-1 (JSON) file is built for its Import. Have your accountant confirm both before filing. B2C Large is an unregistered customer in another state with an invoice above ₹1 lakh; everything else unregistered is B2C Small.
-      </p>
       </>}
     </div>
   );

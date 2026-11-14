@@ -156,6 +156,15 @@
     @apply px-4 py-10 text-center text-ink-2;
   }
 
+  /* Reports: the row number and the first data column stay put when the table scrolls sideways */
+  .grid-tbl.freeze-2 th:nth-child(-n+2), .grid-tbl.freeze-2 td:nth-child(-n+2) {
+    @apply sticky z-[1] bg-surface;
+  }
+  .grid-tbl.freeze-2 th:nth-child(-n+2) { @apply bg-sidebar z-[2]; }
+  .grid-tbl.freeze-2 tfoot td:nth-child(-n+2) { @apply bg-sidebar; }
+  .grid-tbl.freeze-2 th:nth-child(1), .grid-tbl.freeze-2 td:nth-child(1) { left: 0; min-width: 2.5rem; }
+  .grid-tbl.freeze-2 th:nth-child(2), .grid-tbl.freeze-2 td:nth-child(2) { left: 2.5rem; box-shadow: 1px 0 0 rgb(var(--line)); }
+
   [data-density='compact'] .tbl td {
     height: 30px;
   }
