@@ -243,6 +243,12 @@
     background: rgb(0 0 0 / 0.4);
   }
 
+  /* Popup over a softly blurred page */
+  .sheet-blur::backdrop {
+    background: rgb(0 0 0 / 0.3);
+    backdrop-filter: blur(6px);
+  }
+
   .page {
     @apply p-6 space-y-4;
   }

@@ -12,18 +12,23 @@ export type AppModule =
   | 'settings'
   | 'help';
 
+export type SettingsSection = 'company' | 'bank' | 'design' | 'numbering' | 'backup' | 'preferences';
+
 export interface InvoicesRequest { tab?: 'issued' | 'drafts' | 'parked' | 'credits' | 'debits'; filter?: 'all' | 'unpaid' | 'overdue' | 'paid' | 'cancelled' }
 
 interface NavState {
   currentModule: AppModule;
   // Another screen asking the Invoices screen to open on a tab and/or filter (dashboard cards, the Parked command)
   invoicesRequest: InvoicesRequest | null;
+  settingsSection: SettingsSection | null; // Settings opens on this section, then clears it
   activeInvoiceDraftId: string | null;
   // A menu-bar command waiting for the screen that can carry it out. A new object each time, so repeats re-trigger.
   menuAction: { name: string } | null;
   tourOpen: boolean;
   setCurrentModule: (mod: AppModule) => void;
   openInvoices: (request?: InvoicesRequest) => void;
+  openSettings: (section: SettingsSection) => void;
+  clearSettingsSection: () => void;
   clearInvoicesRequest: () => void;
   setActiveInvoiceDraftId: (id: string | null) => void;
   dispatchMenu: (name: string) => void;
@@ -33,12 +38,15 @@ interface NavState {
 export const useNavStore = create<NavState>((set) => ({
   currentModule: 'dashboard',
   invoicesRequest: null,
+  settingsSection: null,
   activeInvoiceDraftId: null,
   menuAction: null,
   tourOpen: false,
   setCurrentModule: (mod) => set({ currentModule: mod }),
   openInvoices: (request = {}) => set({ currentModule: 'invoices', invoicesRequest: request, activeInvoiceDraftId: null }),
   clearInvoicesRequest: () => set({ invoicesRequest: null }),
+  openSettings: (section) => set({ currentModule: 'settings', settingsSection: section }),
+  clearSettingsSection: () => set({ settingsSection: null }),
   setActiveInvoiceDraftId: (id) => set({ activeInvoiceDraftId: id }),
   dispatchMenu: (name) => set({ menuAction: { name } }),
   setTourOpen: (open) => set({ tourOpen: open }),

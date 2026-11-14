@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { friendlyError } from '../../lib/friendlyError';
-import { FileText, Printer, FileDown, ArrowRight, CheckCircle2, Circle, CalendarDays, TrendingUp, Wallet, CalendarClock, AlertTriangle, FilePen, PauseCircle, ImageOff, DatabaseBackup, ShieldCheck, ClipboardList } from 'lucide-react';
+import { FileText, Printer, FileDown, ArrowRight, CheckCircle2, CalendarDays, TrendingUp, Wallet, CalendarClock, AlertTriangle, FilePen, PauseCircle, ImageOff, DatabaseBackup, ShieldCheck, ClipboardList } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO, addDaysISO } from '../../lib/utils';
 import { useNavStore, useMenuAction, type AppModule } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
@@ -8,9 +8,11 @@ import { listInvoices, listDrafts, getSetupCounts, getSetting, setSetting, newDr
 import { invoiceDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { Modal } from '../../components/Modal';
 import { SkeletonRows, EmptyState } from '../../components/Skeleton';
+import { ProgressRing, ProfileDialog } from '../../components/ProfileDialog';
+import { profileItems, profileScore, type ProfileItem } from '../../lib/profile';
 
 export const DashboardView: React.FC = () => {
-  const { setCurrentModule, setActiveInvoiceDraftId, openInvoices } = useNavStore();
+  const { setCurrentModule, setActiveInvoiceDraftId, openInvoices, openSettings } = useNavStore();
   const company = useSystemStore((s) => s.company);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -28,17 +30,23 @@ export const DashboardView: React.FC = () => {
       .catch(() => setSetup(null)); // the checklist is a nicety: never block the dashboard
   }, []);
 
-  // First-run checklist: each step opens the screen that completes it
-  const steps: { label: string; done: boolean; go: AppModule }[] = setup ? [
-    { label: 'Save your company profile', done: setup.company, go: 'settings' },
-    { label: 'Add your logo', done: !!company.logo, go: 'settings' },
-    { label: 'Add your first product', done: setup.products > 0, go: 'products' },
-    { label: 'Add your first customer', done: setup.customers > 0, go: 'customers' },
-    { label: 'Issue your first invoice', done: setup.invoices > 0, go: 'invoices' },
-    { label: 'Pick a USB or cloud folder for backups (daily backups already run on this PC)', done: !!backup?.folder, go: 'settings' },
-  ] : [];
-  const stepsDone = steps.filter((x) => x.done).length;
-  const showChecklist = setup && !setup.dismissed && stepsDone < steps.length;
+  // Live clock for the greeting: minute precision is enough, so it ticks every 15 seconds
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const dateText = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const timeText = now.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  // The profile ring: company details plus the first steps, in one list
+  const [profileOpen, setProfileOpen] = useState(false);
+  const items = setup ? profileItems({ company, savedCompany: setup.company, products: setup.products, customers: setup.customers, invoices: setup.invoices, backupFolder: !!backup?.folder }) : [];
+  const score = profileScore(items.length ? items : [{ done: false } as ProfileItem]);
+  const toGo = items.filter((i) => !i.done).length;
+  const goTo = (item: ProfileItem) => {
+    setProfileOpen(false);
+    if (item.go.module === 'settings' && item.go.section) openSettings(item.go.section); else setCurrentModule(item.go.module);
+  };
 
   useEffect(() => {
     Promise.all([listInvoices(), listDrafts('invoice'), listDrafts('quotation')])
@@ -88,7 +96,7 @@ export const DashboardView: React.FC = () => {
     setCurrentModule('invoices');
   };
 
-  // Things that need doing, most urgent first. Setup items are left to the checklist while it is showing.
+  // Things that need doing, most urgent first
   const backupStale = !!backup && (!!backup.lastError || !backup.lastAt || Date.now() - backup.lastAt > 3 * 24 * 60 * 60 * 1000);
   const liveDrafts = drafts.filter((d) => !d.isParked).length;
   const parked = drafts.filter((d) => d.isParked).length;
@@ -97,9 +105,9 @@ export const DashboardView: React.FC = () => {
     ...(liveDrafts ? [{ id: 'drafts', icon: FilePen, tone: 'warn' as const, text: `${liveDrafts} draft${liveDrafts > 1 ? 's' : ''} not issued`, action: 'Open', run: () => openInvoices({ tab: 'drafts' }) }] : []),
     ...(parked ? [{ id: 'parked', icon: PauseCircle, tone: 'info' as const, text: `${parked} parked invoice${parked > 1 ? 's' : ''} waiting`, action: 'Open', run: () => openInvoices({ tab: 'parked' }) }] : []),
     ...(openQuotes ? [{ id: 'quotes', icon: ClipboardList, tone: 'info' as const, text: `${openQuotes} open quotation${openQuotes > 1 ? 's' : ''}`, action: 'Open', run: () => setCurrentModule('quotations') }] : []),
-    ...(!showChecklist && backupStale ? [{ id: 'backup', icon: DatabaseBackup, tone: 'warn' as const, text: backup?.lastAt ? 'The last backup is more than 3 days old' : 'No backup has been taken yet', action: 'Fix', run: () => setCurrentModule('settings') }] : []),
-    ...(!showChecklist && !company.logo ? [{ id: 'logo', icon: ImageOff, tone: 'info' as const, text: 'Logo not uploaded', action: 'Add', run: () => setCurrentModule('settings') }] : []),
-    ...(!showChecklist && (company.gstin === '21AAACS1234D1Z5' || company.gstin === '21AAACS1234D1Z8') ? [{ id: 'profile', icon: ShieldCheck, tone: 'warn' as const, text: 'Company profile still has sample details', action: 'Edit', run: () => setCurrentModule('settings') }] : []),
+    ...(backupStale ? [{ id: 'backup', icon: DatabaseBackup, tone: 'warn' as const, text: backup?.lastAt ? 'The last backup is more than 3 days old' : 'No backup has been taken yet', action: 'Fix', run: () => setCurrentModule('settings') }] : []),
+    ...(!company.logo ? [{ id: 'logo', icon: ImageOff, tone: 'info' as const, text: 'Logo not uploaded', action: 'Add', run: () => setCurrentModule('settings') }] : []),
+    ...((company.gstin === '21AAACS1234D1Z5' || company.gstin === '21AAACS1234D1Z8') ? [{ id: 'profile', icon: ShieldCheck, tone: 'warn' as const, text: 'Company profile still has sample details', action: 'Edit', run: () => setCurrentModule('settings') }] : []),
   ];
   const TONE = { danger: 'text-danger bg-danger/10', warn: 'text-warn bg-warn/10', info: 'text-accent bg-accent/10' };
 
@@ -107,31 +115,27 @@ export const DashboardView: React.FC = () => {
     <div className="page">
       {error && <p role="alert" className="error">{error}</p>}
 
-      {showChecklist && (
-        <section data-reveal className="card p-4" aria-label="Setup checklist">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold tracking-tight">Get set up</h2>
-              <p className="text-xs text-ink-2">{stepsDone} of {steps.length} done. Each step opens the screen that finishes it.</p>
-            </div>
-            <button onClick={() => { setSetting('setupDismissed', true).catch(() => undefined); setSetup((x) => x && { ...x, dismissed: true }); }} className="btn btn-plain">Hide</button>
-          </div>
-          <div className="mt-3 h-1.5 rounded-full bg-ink/10" role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={stepsDone}>
-            <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${(stepsDone / steps.length) * 100}%` }} />
-          </div>
-          <ul className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6">
-            {steps.map((step) => (
-              <li key={step.label}>
-                <button onClick={() => setCurrentModule(step.go)} disabled={step.done} className="flex w-full items-center gap-3 h-9 text-left disabled:cursor-default hover:text-accent disabled:hover:text-ink">
-                  {step.done ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" aria-hidden /> : <Circle className="h-4 w-4 text-ink-3 shrink-0" aria-hidden />}
-                  <span className={step.done ? 'text-ink-2 line-through' : 'font-medium'}>{step.label}</span>
-                  {!step.done && <ArrowRight className="h-3.5 w-3.5 ml-auto" aria-hidden />}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {/* Greeting with today's date and time, and the profile score */}
+      <header data-reveal className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold tracking-tight truncate">{greeting}, {company.tradeName}</h2>
+          <p className="text-sm text-ink-2 tabular-nums">{dateText} · {timeText}</p>
+        </div>
+        {setup && (
+          <button
+            onClick={() => setProfileOpen(true)}
+            aria-label={`Profile ${score}% complete. See what is missing`}
+            className="flex shrink-0 items-center gap-3 rounded-md border border-line bg-surface py-2 pl-4 pr-3 text-left hover:border-ink/30 transition-colors"
+          >
+            <span>
+              <span className="block text-xs text-ink-2">Profile</span>
+              <span className="block text-sm font-medium">{toGo === 0 ? 'All set' : `${toGo} to complete`}</span>
+            </span>
+            <ProgressRing pct={score} size={44} />
+          </button>
+        )}
+      </header>
+      {profileOpen && <ProfileDialog items={items} onGo={goTo} onClose={() => setProfileOpen(false)} />}
 
       {/* Each figure opens the list behind it */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

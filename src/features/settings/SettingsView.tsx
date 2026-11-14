@@ -8,7 +8,9 @@ import { isValidGstin } from '../../lib/checks';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import { documentHtml, TEMPLATES, ACCENT_PRESETS, DENSITIES, COPY_LABELS, type TemplateId, type Density, type PrintableDocument } from '../../lib/pdf';
 import { useSystemStore, type Company, type Prefs } from '../../store/useSystemStore';
-import { useMenuAction, type AppModule } from '../../store/useNavStore';
+import { useMenuAction, useNavStore, type AppModule } from '../../store/useNavStore';
+import { profileItems, profileScore } from '../../lib/profile';
+import { getSetting } from '../../lib/db';
 import { compressImage } from '../../lib/image';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { NumInput } from '../../components/NumInput';
@@ -66,6 +68,7 @@ interface FieldProps {
   label: string;
   defaultValue: string;
   validate?: (v: string) => string | null;
+  warn?: (v: string) => string | null; // allowed to save, but worth saying: amber text and no green tick
   hint?: string | ((v: string) => string);
   upper?: boolean;
   span?: string;
@@ -75,13 +78,14 @@ interface FieldProps {
 }
 
 // A labelled input with a short label, grey hint underneath, and a green tick or red message
-const Field: React.FC<FieldProps> = ({ name, label, defaultValue, validate, hint, upper, span = '', type, inputMode, onValue }) => {
+const Field: React.FC<FieldProps> = ({ name, label, defaultValue, validate, warn, hint, upper, span = '', type, inputMode, onValue }) => {
   const { attempted } = useContext(FormContext);
   const [value, setValue] = useState(defaultValue);
   const [touched, setTouched] = useState(false);
   const message = validate ? validate(value) : null;
   const showError = !!message && (touched || attempted);
-  const valid = !message && value !== '' && !!validate;
+  const warning = !message ? warn?.(value) ?? null : null;
+  const valid = !message && !warning && value !== '' && !!validate;
   const hintText = typeof hint === 'function' ? hint(value) : hint;
 
   return (
@@ -102,7 +106,7 @@ const Field: React.FC<FieldProps> = ({ name, label, defaultValue, validate, hint
         />
         {valid && <Check className="pointer-events-none absolute right-2 top-2 h-4 w-4 text-success" aria-label="Valid" />}
       </span>
-      {showError ? <span role="alert" className="text-xs font-normal text-danger">{message}</span> : hintText && <span className="text-xs font-normal text-ink-3">{hintText}</span>}
+      {showError ? <span role="alert" className="text-xs font-normal text-danger">{message}</span> : warning ? <span className="text-xs font-normal text-warn">{warning}</span> : hintText && <span className="text-xs font-normal text-ink-3">{hintText}</span>}
     </label>
   );
 };
@@ -124,13 +128,14 @@ const ImageDrop: React.FC<{ label: string; hint: string; value: string; onFile: 
         {value
           ? <img src={value} alt={`Current ${label.toLowerCase()}`} className="h-14 w-28 rounded border border-line bg-white object-contain" />
           : <button type="button" onClick={() => input.current?.click()} className="grid h-14 w-28 place-items-center rounded border border-line text-ink-3 hover:text-ink" aria-label={`Choose ${label.toLowerCase()}`}><ImagePlus className="h-5 w-5" aria-hidden /></button>}
-        <div className="min-w-0 flex-1 text-xs font-normal text-ink-3">{value ? 'Drop another image here to replace it.' : 'Drop an image here, or choose a file.'} {hint}</div>
+        <div className="min-w-0 flex-1 text-xs font-normal text-ink-3">{value ? 'Drop another image here to replace it.' : 'Drop an image here, or choose a file.'}</div>
         <div className="flex gap-2">
           <button type="button" onClick={() => input.current?.click()} className="btn">{value ? 'Replace' : 'Choose File'}</button>
           {value && <button type="button" onClick={onRemove} className="btn btn-danger">Remove</button>}
         </div>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { take(e.target.files?.[0]); e.target.value = ''; }} />
       </div>
+      <span className="text-xs font-normal text-ink-3">{hint}</span>
     </div>
   );
 };
@@ -138,6 +143,12 @@ const ImageDrop: React.FC<{ label: string; hint: string; value: string; onFile: 
 export const SettingsView: React.FC = () => {
   const { company, updateCompany, deviceInfo, prefs, updatePrefs, backup, setBackup } = useSystemStore();
   const [section, setSection] = useState<SectionId>('company');
+  const requested = useNavStore((st) => st.settingsSection);
+  const clearRequested = useNavStore((st) => st.clearSettingsSection);
+  const [saved, setSaved] = useState(false); // the profile has been saved at least once
+  React.useEffect(() => { getSetting('company').then((v) => setSaved(v !== null)).catch(() => undefined); }, [company]);
+  // Another screen (the dashboard profile ring) asked for a section
+  React.useEffect(() => { if (requested) { setSection(requested); clearRequested(); } }, [requested]);
   const [template, setTemplate] = useState<TemplateId>(company.template);
   const [accent, setAccent] = useState(company.accent);
   const [density, setDensity] = useState<Density>(company.density);
@@ -251,10 +262,10 @@ export const SettingsView: React.FC = () => {
 
   const backupStale = !!backup && (!!backup.lastError || !backup.lastAt || Date.now() - backup.lastAt > 48 * 60 * 60 * 1000);
 
-  // How much of the saved profile is filled in
-  const profileChecks = [!!company.legalName, !!company.tradeName, isValidGstin(company.gstin) && company.gstin !== '21AAACS1234D1Z8' && company.gstin !== '21AAACS1234D1Z5', !!company.address, !!company.phone, !!company.email,
-    !!company.bankName, /^\d{9,18}$/.test(company.accountNumber), !VALIDATORS.ifsc(company.ifscCode) && !!company.ifscCode, !!company.upiId, !!company.logo];
-  const profilePct = Math.round((profileChecks.filter(Boolean).length / profileChecks.length) * 100);
+  // How much of the saved company profile is filled in (the same list the dashboard ring uses)
+  const profileList = profileItems({ company, savedCompany: saved, products: 0, customers: 0, invoices: 0, backupFolder: false }).filter((i) => i.group === 'Company profile');
+  const profilePct = profileScore(profileList);
+  const missing = profileList.filter((i) => !i.done);
   const isFormSection = FORM_SECTIONS.includes(section);
   const show = (id: SectionId) => section !== id;
 
@@ -281,6 +292,22 @@ export const SettingsView: React.FC = () => {
             <div className="mt-1 h-1.5 rounded-full bg-ink/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={profilePct}>
               <div className={`h-full rounded-full ${profilePct === 100 ? 'bg-success' : 'bg-accent'}`} style={{ width: `${profilePct}%` }} />
             </div>
+            {/* Say exactly what is missing, and take you to it */}
+            {missing.length > 0 && (
+              <div className="mt-3">
+                <div className="text-xs font-semibold text-ink-2">To finish your profile</div>
+                <ul className="mt-1 space-y-px">
+                  {missing.map((m) => (
+                    <li key={m.id}>
+                      <button onClick={() => setSection((m.go.section ?? 'company') as SectionId)} title={m.hint} className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-ink-2 hover:bg-ink/5 hover:text-ink">
+                        <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
+                        <span className="truncate">{m.label}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </nav>
 
@@ -305,7 +332,7 @@ export const SettingsView: React.FC = () => {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                     <Field name="legalName" label="Legal Name" defaultValue={company.legalName} validate={VALIDATORS.required} />
                     <Field name="tradeName" label="Trade Name" defaultValue={company.tradeName} validate={VALIDATORS.required} />
-                    <Field name="gstin" label="GSTIN" defaultValue={company.gstin} validate={VALIDATORS.gstin} upper
+                    <Field name="gstin" label="GSTIN" defaultValue={company.gstin} validate={VALIDATORS.gstin} upper warn={(v) => (v === '21AAACS1234D1Z5' || v === '21AAACS1234D1Z8' ? 'This is the sample GSTIN that came with the app. Enter your own.' : null)}
                       hint={(v) => INDIAN_STATES[v.slice(0, 2)] ? `Home state: ${INDIAN_STATES[v.slice(0, 2)]}. Decides CGST + SGST or IGST.` : 'Decides CGST + SGST or IGST.'} />
                     <Field name="address" label="Address" span="col-span-2" defaultValue={company.address} validate={VALIDATORS.required} />
                     <Field name="phone" label="Phone" type="tel" defaultValue={company.phone} validate={VALIDATORS.phone} />
