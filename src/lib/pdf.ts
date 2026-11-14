@@ -1,25 +1,16 @@
 // A4 HTML for invoices and quotations, rendered to PDF by Electron's printToPDF.
-// One shared body and thirteen looks (CSS only), one per layout in Invoify's template gallery (references/invoify),
-// plus its accent presets and density setting.
+// One shared body and four looks (CSS only), plus accent presets and a density setting.
 // Type-only static imports here: scripts/gst.check.ts loads this file directly under Node.
 import type { InvoiceLine, InvoiceTotals } from './gst';
 import type { Customer, Invoice, CreditNote, DebitNote } from './db';
 import type { Company } from '../store/useSystemStore';
 
+// Four layouts that look clearly different: plain, accent-titled, accent-banded, and boxed like a government form
 export const TEMPLATES = {
   minimal: 'Minimal',
   classic: 'Classic',
-  modern: 'Modern',
-  bordered: 'Bordered',
   boldheader: 'Bold Header',
-  corner: 'Corner',
-  statement: 'Statement',
-  twotone: 'Two-Tone',
-  letterhead: 'Letterhead',
-  leftrail: 'Left Rail',
-  sidebar: 'Sidebar',
-  column: 'Column',
-  compact: 'Compact',
+  bordered: 'Bordered',
 } as const;
 export type TemplateId = keyof typeof TEMPLATES;
 
@@ -130,14 +121,18 @@ const CSS = `
   .items tr { break-inside: avoid; }
   .n, .items th.n { text-align: right; white-space: nowrap; }
   .summary { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-top: 16px; break-inside: avoid; }
-  .hsn { width: 54%; font-size: 9.5px; }
+  .hsn { font-size: 9.5px; }
   .hsn th, .hsn td { padding: 3px 6px; border-bottom: 1px solid #e5e5ea; text-align: right; font-weight: 400; }
   .hsn th { color: #6e6e73; }
   .hsn th:first-child, .hsn td:first-child { text-align: left; }
   .totals { width: 40%; }
   .totals td { padding: 3px 6px; }
   .totals .grand td { font-size: 14px; font-weight: 600; color: var(--accent); border-top: 1px solid #1d1d1f; padding-top: 8px; }
-  .words { margin-top: 8px; text-align: right; }
+  .summary .left { width: 54%; }
+  .summary .left .hsn { width: 100%; }
+  .words { margin-top: 8px; }
+  .nologo .co { font-size: 20px; }
+  .eoe { margin-top: 6px; font-size: 9px; }
   footer { display: grid; grid-template-columns: 1.3fr 1.3fr 1fr; gap: 24px; margin-top: 26px; padding-top: 14px; border-top: 1px solid #e5e5ea; break-inside: avoid; }
   .pay { display: flex; gap: 10px; align-items: flex-start; }
   .pay svg { width: 72px; height: 72px; flex: none; }
@@ -145,9 +140,7 @@ const CSS = `
   .sign .line { margin-top: 44px; }
   pre { font: inherit; white-space: pre-wrap; }
 
-  .due, .due-by, .strip { display: none; }
-  .strip { grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; padding: 10px 14px; }
-  .strip b { display: block; font-size: 13px; }
+  .due { display: none; }
   .sign img { display: block; margin: 6px 0 0 auto; max-height: 44px; max-width: 150px; object-fit: contain; }
   .sign img + .line { margin-top: 4px; }
   .d-compact .copy { zoom: .9; }
@@ -158,15 +151,9 @@ const CSS = `
   .classic .number { font-size: 13px; font-weight: 600; letter-spacing: 0; }
   .classic .items th { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* Modern: stacked header, sender above a wide rule */
-  .modern header { flex-direction: column; gap: 10px; border-bottom: 3px solid var(--accent); padding-bottom: 14px; }
-  .modern .doc { text-align: left; display: flex; gap: 12px; align-items: baseline; }
-  .modern .number { font-size: 18px; font-weight: 600; }
-  .modern .eyebrow { color: var(--accent); }
-
-  /* Bordered: every block boxed with black rules, the way government invoice forms look */
-  .bordered header, .bordered .parties, .bordered .summary, .bordered .words, .bordered footer { border: 1px solid #1d1d1f; margin: 0; padding: 10px 12px; }
-  .bordered .parties, .bordered .summary, .bordered .words, .bordered footer { border-top: 0; }
+  /* Bordered: every block boxed with one black rule, the way government invoice forms look */
+  .bordered header, .bordered .parties, .bordered footer { border: 1px solid #1d1d1f; margin: 0; padding: 10px 12px; }
+  .bordered .parties, .bordered footer { border-top: 0; }
   .bordered .parties { gap: 0; padding: 0; }
   .bordered .parties > div { padding: 8px 12px; }
   .bordered .parties > div + div { border-left: 1px solid #1d1d1f; }
@@ -175,9 +162,16 @@ const CSS = `
   .bordered .items th { background: #f0f0f2; color: #1d1d1f; border-top: 0; }
   .bordered .number { font-size: 16px; font-weight: 600; letter-spacing: 0; }
   .bordered .doc .eyebrow { font-size: 11px; color: #1d1d1f; }
-  .bordered .totals .grand td { color: #1d1d1f; }
-  .bordered .words { text-align: left; color: #1d1d1f; font-weight: 600; }
-  .bordered .hsn th, .bordered .hsn td { border: 1px solid #1d1d1f; }
+  /* The summary is one box: tax table, words and totals share its outer rule instead of drawing their own */
+  .bordered .summary { margin: 0; gap: 0; border: 1px solid #1d1d1f; border-top: 0; align-items: stretch; }
+  .bordered .summary .left { padding: 0; border-right: 1px solid #1d1d1f; width: 58%; }
+  .bordered .summary .left .hsn { width: 100%; }
+  .bordered .hsn th, .bordered .hsn td { border: 0; border-bottom: 1px solid #1d1d1f; }
+  .bordered .words { margin: 0; padding: 8px 10px; }
+  .bordered .totals { width: 42%; }
+  .bordered .totals td { padding: 4px 10px; border-bottom: 1px solid #1d1d1f; }
+  .bordered .totals .grand td { color: #1d1d1f; border-bottom: 0; }
+  .bordered .totals tr:last-child td { border-bottom: 0; }
 
   /* Bold Header: accent band carrying the title and the total */
   .boldheader header { background: var(--accent); color: #fff; padding: 18px 20px; border-radius: 10px; align-items: center; }
@@ -190,70 +184,6 @@ const CSS = `
   .boldheader .items th { background: #f5f5f7; border-bottom: 0; color: #1d1d1f; }
   .boldheader .items tbody tr:nth-child(even) td { background: #fafafc; }
   .boldheader .totals .grand td { background: var(--accent); color: #fff; border-top: 0; padding: 8px 10px; }
-
-  /* Corner: an accent block top-right holds the amount and the due date, like a stamp */
-  .corner .doc { background: var(--accent); color: #fff; padding: 16px 18px; border-radius: 0 0 0 14px; margin: -24px -28px 0 0; }
-  .corner .doc .eyebrow, .corner .doc .copy-label, .corner .doc .due-by { color: rgba(255, 255, 255, .82); }
-  .corner .doc .cancelled { color: #fff; }
-  .corner .number { font-size: 13px; font-weight: 600; }
-  .corner .due { display: block; font-size: 22px; font-weight: 700; margin-top: 6px; }
-  .corner .due-by { display: block; font-size: 9px; }
-
-  /* Statement: a strip of key figures first, detail beneath */
-  .statement .strip { display: grid; background: #f5f5f7; border-radius: 8px; }
-  .statement .strip b { color: var(--accent); }
-  .statement .number { font-size: 15px; font-weight: 600; }
-
-  /* Two-Tone: a soft tint of the accent behind header and summary */
-  .twotone header, .twotone .summary { background: color-mix(in srgb, var(--accent) 10%, #fff); padding: 16px 18px; border-radius: 10px; }
-  .twotone .eyebrow { color: var(--accent); }
-
-  /* Letterhead: centred masthead between double rules */
-  .letterhead header { flex-direction: column; align-items: center; text-align: center; gap: 8px; border-top: 3px double #1d1d1f; border-bottom: 3px double #1d1d1f; padding: 14px 0; }
-  .letterhead .brand { flex-direction: column; align-items: center; }
-  .letterhead .doc { text-align: center; }
-  .letterhead .number { font-size: 15px; font-weight: 600; }
-
-  /* Left Rail: one accent stripe down the left edge, the only colour on the page */
-  .leftrail .copy { border-left: 5px solid var(--accent); }
-  .leftrail .eyebrow { color: var(--accent); }
-  .leftrail .totals .grand td { color: #1d1d1f; }
-
-  /* Sidebar: an accent rail carries the sender and document details; the main column holds the rest */
-  .sidebar .copy { display: grid; grid-template-columns: 172px 1fr; column-gap: 22px; padding: 0 28px 0 0; }
-  .sidebar header { grid-column: 1; grid-row: 1 / span 6; flex-direction: column; background: var(--accent); color: #fff; padding: 24px 16px; margin: 0; }
-  .sidebar header .muted, .sidebar header .eyebrow, .sidebar header .copy-label { color: rgba(255, 255, 255, .82); }
-  .sidebar header .cancelled { color: #fff; }
-  .sidebar .brand { flex-direction: column; }
-  .sidebar .brand img { background: #fff; border-radius: 6px; padding: 4px; }
-  .sidebar .doc { text-align: left; white-space: normal; }
-  .sidebar .number { font-size: 15px; font-weight: 600; }
-  .sidebar .parties, .sidebar .items, .sidebar .summary, .sidebar .words, .sidebar footer { grid-column: 2; }
-  .sidebar .parties { margin-top: 24px; }
-  .sidebar footer { margin-bottom: 24px; }
-
-  /* Column: a narrow column of metadata runs beside the items, hairlines only */
-  .column .copy { display: grid; grid-template-columns: 150px 1fr; column-gap: 22px; }
-  .column header { grid-column: 1 / -1; border-bottom: 1px solid #1d1d1f; padding-bottom: 14px; }
-  .column .parties { grid-column: 1; grid-row: 2 / span 5; display: block; border-right: 1px solid #e5e5ea; padding-right: 14px; }
-  .column .parties > div + div { margin-top: 16px; }
-  .column .items, .column .summary, .column .words, .column footer { grid-column: 2; }
-  .column .items { margin-top: 0; }
-  .column .number { font-size: 16px; font-weight: 600; }
-
-  /* Compact: receipt-tight; dates run as one strip under the header */
-  .compact .copy { padding: 14px 18px; line-height: 1.35; }
-  .compact header { margin-bottom: 10px; }
-  .compact .number { font-size: 15px; font-weight: 600; }
-  .compact .strip { display: grid; padding: 6px 0; margin-bottom: 10px; border-top: 1px solid #1d1d1f; border-bottom: 1px solid #1d1d1f; }
-  .compact .strip b { font-size: 11px; }
-  .compact .parties { grid-template-columns: 1fr; }
-  .compact .parties > div + div { display: none; }
-  .compact .items { margin-top: 10px; }
-  .compact .items td { padding: 3px 6px; }
-  .compact .summary { margin-top: 8px; }
-  .compact footer { margin-top: 12px; padding-top: 8px; }
-  .compact .sign .line { margin-top: 24px; }
 `;
 
 export function documentHtml(d: PrintableDocument, look: Look): string {
@@ -284,7 +214,7 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
         <div>
           <p class="co">${esc(co.legalName)}</p>
           <p>${esc(co.address)}</p>
-          <p>GSTIN ${esc(co.gstin)}</p>
+          <p>GSTIN ${esc(co.gstin)}${co.stateName ? ` · State: ${esc(co.stateName)} (${esc(co.stateCode)})` : ''}</p>
           <p class="muted">${esc([co.phone, co.email].filter(Boolean).join(' · '))}</p>
         </div>
       </div>
@@ -292,18 +222,10 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
         <p class="eyebrow">${esc(d.title)}</p>
         <p class="number">${esc(d.number)}</p>
         <p class="due">₹ ${inr(t.total)}</p>
-        ${d.secondDate ? `<p class="due-by">${d.secondDateLabel} ${date(d.secondDate)}</p>` : ''}
         ${copyLabel ? `<p class="copy-label">${esc(copyLabel)}</p>` : ''}
         ${d.cancelled ? '<p class="cancelled">CANCELLED</p>' : ''}
       </div>
     </header>
-
-    <div class="strip">
-      <div><span class="muted">Number</span><b>${esc(d.number)}</b></div>
-      <div><span class="muted">Date</span><b>${date(d.date)}</b></div>
-      <div><span class="muted">${d.secondDateLabel}</span><b>${date(d.secondDate) || '-'}</b></div>
-      <div><span class="muted">Total</span><b>₹ ${inr(t.total)}</b></div>
-    </div>
 
     <section class="parties">
       <div>
@@ -318,6 +240,7 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
         <p class="eyebrow">Details</p>
         Date: ${date(d.date)}<br>
         ${d.secondDate ? `${d.secondDateLabel}: ${date(d.secondDate)}<br>` : ''}
+        ${d.title === 'Quotation' ? '' : 'Reverse Charge: No<br>'}
         ${d.reference ? esc(d.reference) : ''}
       </div>
     </section>
@@ -331,7 +254,10 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
     </table>
 
     <div class="summary">
-      ${hsnSummary(d.items, t)}
+      <div class="left">
+        ${hsnSummary(d.items, t)}
+        <p class="words"><span class="muted">Amount in words:</span> <strong>${rupeesInWords(t.total)}</strong></p>
+      </div>
       <table class="totals">
         <tr><td>Taxable Value</td><td class="n">${inr(t.taxable)}</td></tr>
         ${taxRows}
@@ -339,12 +265,12 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
         <tr class="grand"><td>Total</td><td class="n">₹ ${inr(t.total)}</td></tr>
       </table>
     </div>
-    <p class="words muted">${rupeesInWords(t.total)}</p>
 
     <footer>
       <div>
         <p class="eyebrow">Notes &amp; Terms</p>
         <pre>${esc([d.notes, co.terms].filter(Boolean).join('\n'))}</pre>
+        <p class="eoe muted">E. &amp; O.E.</p>
       </div>
       <div>
         <p class="eyebrow">Payment</p>
@@ -368,7 +294,7 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>${esc(d.number)}</title><style>${CSS}</style></head>
-<body class="${look.template} d-${look.density}" style="--accent: ${/^#[0-9a-f]{6}$/i.test(look.accent) ? look.accent : '#2a54e0'}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
+<body class="${look.template} d-${look.density}${look.logo ? '' : ' nologo'}" style="--accent: ${/^#[0-9a-f]{6}$/i.test(look.accent) ? look.accent : '#2a54e0'}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
 }
 
 export const invoiceDocument = (inv: Invoice): PrintableDocument => ({

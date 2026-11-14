@@ -36,7 +36,7 @@ It runs on one computer and keeps everything in a local database. No account, no
 | **Drafts that never get lost** | Autosave, park a bill for a waiting customer, resume later. Closing the window saves first. |
 | **Credit and debit notes** | The only way to change an issued invoice. Each has its own number series; part payments and overdue marking included. |
 | **Audit log and backups** | Every create, change and delete is recorded by the database. Daily automatic backup, restore with a preview. |
-| **13 invoice templates** | Accent colour, three text sizes, logo, signature, UPI scan-to-pay QR, Original / Duplicate / Triplicate copies. |
+| **4 invoice templates** | Accent colour, three text sizes, logo, signature, UPI scan-to-pay QR, Original / Duplicate / Triplicate copies. |
 | **GST filing** | GSTR-1 sheets (B2B, B2C Large and Small, HSN, notes) plus a GSTR-1 JSON file for the GST offline tool. One click exports every report as an Excel workbook. |
 | **Command palette** | Ctrl+K jumps to any screen or action. |
 | **First-run tutorial** | A guided tour of every screen and menu starts on first launch. Replay it any time from Help > Start Tutorial. |
@@ -55,12 +55,7 @@ It runs on one computer and keeps everything in a local database. No account, no
   </tr>
 </table>
 
-<details>
-<summary><b>Invoice templates</b></summary>
-<br>
-<img src="docs/screenshots/templates.png" alt="Six of the thirteen invoice templates" width="100%">
-<sub>Six of the 13 layouts, shown here with a sample logo and a teal accent. Every template carries the same content.</sub>
-</details>
+Four invoice layouts: Minimal, Classic, Bold Header and Bordered. All carry the same content, including state code, reverse charge, amount in words and E. & O.E.
 
 ## Install
 
@@ -97,7 +92,7 @@ Windows app (Electron)
 
 - **One database file** in the user's app data folder. Each save is written to a temporary file and swapped in, so a crash cannot leave it half-written.
 - **Business rules live in the database**, not only on screen: issued invoices and credit notes cannot be edited or deleted, payments cannot exceed what is owed, credit cannot exceed the invoice, and issuing the same draft twice fails instead of duplicating.
-- **PDF and print** use Electron's Chromium: one HTML body, thirteen CSS looks.
+- **PDF and print** use Electron's Chromium: one HTML body, four CSS looks.
 
 ### Project layout
 

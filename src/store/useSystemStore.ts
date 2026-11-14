@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { DeviceInfo, BackupStatus } from '../types/electron';
 import { getSetting, setSetting } from '../lib/db';
-import type { TemplateId, Density } from '../lib/pdf';
+import { TEMPLATES, type TemplateId, type Density } from '../lib/pdf';
 import type { AppModule } from './useNavStore';
 
 export interface Company {
@@ -88,7 +88,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   setDeviceInfo: (deviceInfo) => set({ deviceInfo }),
   loadCompany: async () => {
     const saved = await getSetting<Partial<Company>>('company');
-    if (saved) set((state) => ({ company: { ...state.company, ...saved } }));
+    if (saved) set((state) => ({ company: { ...state.company, ...saved, template: saved.template && saved.template in TEMPLATES ? saved.template : 'minimal' } })); // older profiles may name a layout that was retired
   },
   updateCompany: async (config) => {
     const company = { ...get().company, ...config };
