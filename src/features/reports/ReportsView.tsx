@@ -3,7 +3,7 @@ import { friendlyError } from '../../lib/friendlyError';
 import { Download, FileSpreadsheet, FileJson, Info, AlertTriangle } from 'lucide-react';
 import { computeInvoice } from '../../lib/gst';
 import { listInvoices, listCreditNotes, listDebitNotes, financialYearOf, outstandingOf, paymentStatusOf, type Invoice, type CreditNote, type DebitNote } from '../../lib/db';
-import { buildGstr1, isB2cl } from '../../lib/gstr1.ts';
+import { buildGstr1, isB2cl } from '../../lib/gstr1';
 import { downloadCsv } from '../../lib/csv';
 import { todayISO } from '../../lib/utils';
 import { useMenuAction } from '../../store/useNavStore';

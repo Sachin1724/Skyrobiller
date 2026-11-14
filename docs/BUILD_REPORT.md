@@ -109,6 +109,28 @@ Key business and engineering requirements:
    - `scripts/gst.check.ts` passes (`gst ok`).
    - `npm run build` succeeds cleanly.
 
+### Phase 3: Security Remediation & Hardening (Zero UI Impact)
+1. **Neutralized CSV Formula Injection (CWE-1236)**:
+   - Updated `toCsv()` in `src/lib/csv.ts` to automatically escape leading `=, +, -, @, \t, \r` with single quotes (`'`) before exporting.
+   - Added unit test assertion in `scripts/gst.check.ts`.
+
+2. **Sanitized Print Window & PDF Generation**:
+   - Allowlisted `template` and `density` attributes in `src/lib/pdf.ts` against known configuration values.
+   - Strict scheme enforcement for `logo` and `signature` (only allowing `data:image/` URIs).
+   - Injected strict Content Security Policy into generated PDF HTML (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:;`).
+   - Hardened Electron's hidden print window in `loadDocumentWindow()` (`nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, `javascript: false`, and unpredictable UUID temp filenames).
+
+3. **Guarded Database IPC from DDL Tampering**:
+   - In `electron/main/db.ts`, guarded `queryDb` and `batchDb` to reject any DDL statements (`DROP`, `ALTER`, `ATTACH`, `DETACH`) over the renderer IPC bridge.
+   - Verified that immutable triggers cannot be dropped over IPC.
+   - Re-applied `applySchema()` and `PRAGMA integrity_check` on backup restores.
+
+4. **Electron Environment Hardening**:
+   - Removed packaged `localhost:5173` fallback in `electron/main/main.ts`.
+   - Bound `db:restoreApply` strictly to the dialog-picked path in `lastPickedRestorePath`.
+   - Prevented UNC paths in `backup.ts` to prevent SMB credential leakage.
+   - Removed unused `@supabase/supabase-js` dependency and tightened renderer CSP in `index.html`.
+
 ---
 
 ## 5. Next Planned Activities (Phase 2 & Phase 3)

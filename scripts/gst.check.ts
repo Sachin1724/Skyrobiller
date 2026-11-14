@@ -66,5 +66,6 @@ assert.deepEqual(parseCsv('a,b\r\n"x, y","he said ""hi"""\n\n"multi\nline",z'), 
 assert.deepEqual(csvRecords('\uFEFFSKU, Name\nA1,Motor\n', ['sku', 'name']), [{ sku: 'A1', name: 'Motor' }]);
 assert.throws(() => csvRecords('sku\nA1', ['sku', 'price']), /Missing column: price/);
 assert.deepEqual(parseCsv(toCsv([['a,b', 'q"q'], [1, 2]])), [['a,b', 'q"q'], ['1', '2']]); // round trip
+assert.equal(toCsv([['=1+1', '+SUM', '-5', '@cmd']]), `"'=1+1","'+SUM","'-5","'@cmd"`); // neutralises formula injection
 
 console.log('gst ok');

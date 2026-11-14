@@ -32,8 +32,15 @@ export function readBackupSettings(): BackupSettings {
 }
 
 export function writeBackupSettings(change: Partial<BackupSettings>): BackupSettings {
-  const next = { ...readBackupSettings(), ...change };
-  next.keep = Math.min(365, Math.max(1, Math.round(next.keep) || 14));
+  const current = readBackupSettings();
+  const next: BackupSettings = {
+    enabled: typeof change.enabled === 'boolean' ? change.enabled : current.enabled,
+    // Reject UNC network paths (\\server\share) to avoid SMB credential leaks
+    folder: typeof change.folder === 'string' && !change.folder.startsWith('\\\\') && !change.folder.startsWith('//')
+      ? change.folder
+      : current.folder,
+    keep: typeof change.keep === 'number' ? Math.min(365, Math.max(1, Math.round(change.keep) || 14)) : current.keep,
+  };
   fs.writeFileSync(settingsPath(), JSON.stringify(next));
   return next;
 }

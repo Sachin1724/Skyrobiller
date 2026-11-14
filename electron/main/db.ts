@@ -45,8 +45,17 @@ export function saveDatabase(): boolean {
   }
 }
 
+const FORBIDDEN_DDL_RE = /^\s*(DROP|ALTER|ATTACH|DETACH|VACUUM|REINDEX)\b/i;
+
+function hasForbiddenDdl(sql: string): boolean {
+  return FORBIDDEN_DDL_RE.test(sql.trim());
+}
+
 export function queryDb<T = any>(sql: string, params: any[] = []): { success: boolean; rows?: T[]; error?: string } {
   if (!db) return { success: false, error: 'Database not initialized' };
+  if (hasForbiddenDdl(sql)) {
+    return { success: false, error: 'Database structure modifications (DDL) are not permitted over IPC' };
+  }
   try {
     const stmt = db.prepare(sql);
     stmt.bind(params);
@@ -64,6 +73,11 @@ export function queryDb<T = any>(sql: string, params: any[] = []): { success: bo
 // Runs all statements in one transaction and persists once; any failure rolls everything back.
 export function batchDb(statements: { sql: string; params?: any[] }[]): { success: boolean; error?: string } {
   if (!db) return { success: false, error: 'Database not initialized' };
+  for (const s of statements) {
+    if (hasForbiddenDdl(s.sql)) {
+      return { success: false, error: 'Database structure modifications (DDL) are not permitted over IPC' };
+    }
+  }
   try {
     db.run('BEGIN');
     for (const s of statements) db.run(s.sql, s.params ?? []);
@@ -123,8 +137,13 @@ export async function restoreDatabase(srcPath: string): Promise<{ success: boole
   try {
     const SQL = await initSqlJs();
     const candidate = new SQL.Database(fs.readFileSync(srcPath));
+    const integrity = candidate.exec('PRAGMA integrity_check')[0]?.values[0]?.[0];
+    if (integrity !== 'ok') {
+      candidate.close();
+      return { success: false, error: `Corrupt backup file: integrity check failed (${integrity})` };
+    }
     candidate.exec('SELECT 1 FROM local_products LIMIT 1'); // throws unless this is a Skyro Biller database
-    applySchema(candidate);
+    applySchema(candidate); // drops and recreates all triggers, ensuring ledger rules are intact
     if (fs.existsSync(dbFilePath)) fs.copyFileSync(dbFilePath, dbFilePath + '.before-restore');
     db = candidate;
     return saveDatabase() ? { success: true } : { success: false, error: 'Could not write the restored database to disk' };

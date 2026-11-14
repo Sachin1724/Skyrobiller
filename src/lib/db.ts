@@ -353,6 +353,33 @@ export async function issueInvoice(input: {
   return toInvoice(rows[0]);
 }
 
+// Updates an issued invoice's customer, items, totals, notes or due date while preserving its permanent invoice number and sequence.
+export function updateInvoice(input: {
+  id: string;
+  customer: Customer;
+  items: InvoiceLine[];
+  totals: InvoiceTotals;
+  notes: string;
+  dueDate: string;
+}): Promise<void> {
+  return execute(
+    `UPDATE local_invoices
+     SET customer_id = ?, customer_name = ?, customer_json = ?, items_json = ?, totals_json = ?, total = ?, notes = ?, due_date = ?
+     WHERE id = ? AND status = 'issued'`,
+    [
+      input.customer.id,
+      input.customer.businessName,
+      JSON.stringify(input.customer),
+      JSON.stringify(input.items),
+      JSON.stringify(input.totals),
+      input.totals.total,
+      input.notes,
+      input.dueDate,
+      input.id,
+    ],
+  );
+}
+
 // The number the next issued invoice will get, for the confirmation sheet. The real number is assigned inside the INSERT.
 export async function nextInvoiceNumber(prefix: string, issueDate: string): Promise<string> {
   const fy = financialYearOf(issueDate);

@@ -1,6 +1,6 @@
 // GSTR-1 for the GST offline tool: the JSON it imports (b2b, b2cl, b2cs, cdnr, cdnur, hsn, doc_issue).
 // Type-only imports here: scripts/gst.check.ts loads this file directly under Node.
-import { computeInvoice, type InvoiceLine, type InvoiceTotals } from './gst.ts';
+import { computeInvoice, type InvoiceLine, type InvoiceTotals } from './gst';
 import type { Invoice, Note, CreditNote, DebitNote } from './db';
 
 // An unregistered customer in another state, invoice value above ₹1 lakh (limit in force since 1 Aug 2024)

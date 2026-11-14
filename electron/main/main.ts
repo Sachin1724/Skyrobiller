@@ -78,8 +78,10 @@ async function createWindow() {
     win.loadURL(devServerUrl);
   } else if (fs.existsSync(path.join(RENDERER_DIST, 'index.html'))) {
     win.loadFile(path.join(RENDERER_DIST, 'index.html'));
-  } else {
+  } else if (!app.isPackaged) {
     win.loadURL('http://localhost:5173');
+  } else {
+    logError('startup', 'Production bundle index.html not found');
   }
 }
 
@@ -146,6 +148,8 @@ ipcMain.handle('db:backup', async () => {
   return { ...backupDatabase(filePath), filePath };
 });
 
+let lastPickedRestorePath: string | null = null;
+
 // Restore is two steps so the user sees what they are about to load: pick a file (returns a preview), then apply it
 ipcMain.handle('db:restorePick', async (_event, startIn?: string) => {
   const { filePaths } = await dialog.showOpenDialog({
@@ -153,14 +157,22 @@ ipcMain.handle('db:restorePick', async (_event, startIn?: string) => {
     defaultPath: startIn || getBackupStatus().effectiveFolder,
   });
   if (!filePaths[0]) return { success: false, error: 'Cancelled' };
+  lastPickedRestorePath = filePaths[0];
   return { ...(await previewBackup(filePaths[0])), filePath: filePaths[0] };
 });
 
 ipcMain.handle('db:restoreApply', async (_event, filePath: string) => {
+  // Bind restoreApply strictly to the file picked via dialog
+  if (!lastPickedRestorePath || filePath !== lastPickedRestorePath) {
+    return { success: false, error: 'Selected file path does not match the picked backup file' };
+  }
   // The current data is kept beside the database as .before-restore, so a wrong restore can be undone.
   // Today's automatic backup is left alone: the user may be restoring from that very file.
   const result = await restoreDatabase(filePath);
-  if (result.success) win?.reload(); // every screen re-reads from the restored database
+  if (result.success) {
+    lastPickedRestorePath = null;
+    win?.reload(); // every screen re-reads from the restored database
+  }
   return result;
 });
 
@@ -196,8 +208,16 @@ ipcMain.handle('db:save', () => {
 // Loads document HTML into a hidden window, ready to print or turn into a PDF.
 // Loaded from a temp file, not a data: URL: an embedded logo can push the page past Chromium's 2 MB URL limit.
 async function loadDocumentWindow(htmlContent: string): Promise<BrowserWindow> {
-  const printWin = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false } });
-  const htmlPath = path.join(app.getPath('temp'), `skyro-print-${Date.now()}.html`);
+  const printWin = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      javascript: false,
+    },
+  });
+  const htmlPath = path.join(app.getPath('temp'), `skyro-print-${crypto.randomUUID()}.html`);
   fs.writeFileSync(htmlPath, htmlContent);
   try {
     await printWin.loadFile(htmlPath);

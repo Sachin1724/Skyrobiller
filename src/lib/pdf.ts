@@ -286,11 +286,17 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
     ? `<tr><td>CGST</td><td class="n">${inr(t.cgst)}</td></tr><tr><td>SGST</td><td class="n">${inr(t.sgst)}</td></tr>`
     : `<tr><td>IGST</td><td class="n">${inr(t.igst)}</td></tr>`;
 
+  const safeLogo = look.logo?.startsWith('data:image/') ? esc(look.logo) : '';
+  const safeSignature = look.signature?.startsWith('data:image/') ? esc(look.signature) : '';
+  const safeTemplate = (look.template in TEMPLATES) ? look.template : 'classic';
+  const safeDensity = (look.density in DENSITIES) ? look.density : 'comfortable';
+  const safeAccent = /^#[0-9a-f]{6}$/i.test(look.accent) ? look.accent : '#2a54e0';
+
   const copy = (copyLabel: string) => `
   <div class="copy">
     <header>
       <div class="brand">
-        ${look.logo ? `<img src="${esc(look.logo)}" alt="">` : ''}
+        ${safeLogo ? `<img src="${safeLogo}" alt="">` : ''}
         <div>
           <p class="co">${esc(co.legalName)}</p>
           <p>${esc(co.address)}</p>
@@ -374,15 +380,15 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
       </div>
       <div class="sign">
         <p>For ${esc(co.legalName)}</p>
-        ${look.signature ? `<img src="${esc(look.signature)}" alt="">` : ''}
+        ${safeSignature ? `<img src="${safeSignature}" alt="">` : ''}
         <p class="line muted">Authorised Signatory</p>
       </div>
     </footer>
   </div>`;
 
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>${esc(d.number)}</title><style>${CSS}</style></head>
-<body class="${look.template} d-${look.density}${look.logo ? '' : ' nologo'}" style="--accent: ${/^#[0-9a-f]{6}$/i.test(look.accent) ? look.accent : '#2a54e0'}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
+<html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:;"><title>${esc(d.number)}</title><style>${CSS}</style></head>
+<body class="${safeTemplate} d-${safeDensity}${safeLogo ? '' : ' nologo'}" style="--accent: ${safeAccent}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
 }
 
 export const invoiceDocument = (inv: Invoice): PrintableDocument => ({

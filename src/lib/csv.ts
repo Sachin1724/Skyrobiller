@@ -41,7 +41,14 @@ export function csvRecords(text: string, required: string[]): Record<string, str
 }
 
 export function toCsv(rows: (string | number)[][]): string {
-  const quote = (c: string | number) => `"${String(c).replace(/"/g, '""')}"`;
+  const quote = (c: string | number) => {
+    let s = String(c);
+    // Neutralise spreadsheet formula injection (CWE-1236)
+    if (/^[=+\-@\t\r]/.test(s)) {
+      s = `'${s}`;
+    }
+    return `"${s.replace(/"/g, '""')}"`;
+  };
   return rows.map((r) => r.map(quote).join(',')).join('\r\n');
 }
 

@@ -1,0 +1,48 @@
+SKYRO BILLER
+============
+Smart GST billing for Windows. Fast to bill. Remembers your products and customers.
+
+WHAT IT IS
+Skyro Biller is a desktop billing program built for a UAV parts business in India. Pick a customer, search for parts, and the invoice fills itself in: HSN codes, GST rates, CGST/SGST or IGST by place of supply, due dates, and the next consecutive invoice number. Then print it, save a PDF, or export the month's figures to Excel for your accountant.
+
+It runs on one computer and keeps everything in a local database. No account and no internet needed.
+
+Version: 1.0.0 (local-only)
+Platform: Windows 10 / 11
+Built with: Electron, React, TypeScript, Tailwind, SQLite (sql.js)
+
+KEY FEATURES
+- Product and customer memory: search as you type, in any word order. One pick fills a whole line item or the whole bill-to.
+- Indian GST handled automatically: CGST + SGST within your state, IGST outside it. HSN summary, round-off, amount in words.
+- Consecutive invoice numbers: format SKY/2026-27/0001, restarting each financial year. Issued invoices are locked by the database.
+- Drafts that never get lost: autosave, park a bill for a waiting customer, resume later. Closing the window saves first.
+- Quotations, payments and credit notes: part payments, overdue marking, credit notes in their own number series.
+- 13 invoice templates: accent colour, three text sizes, logo, signature, UPI scan-to-pay QR, Original / Duplicate / Triplicate copies.
+- GST filing sheets: GSTR-1 style B2B, B2C, HSN and credit note sheets. One-click Excel export of every report.
+- Edit issued invoices, partial payment UI, automatic image compression.
+- First-run tutorial and built-in help for every screen and menu.
+- Proper Windows program: menu bar, keyboard shortcuts, light/dark theme, installer.
+
+HOW DATA IS KEPT SAFE
+- One database file in the user's app data folder. Each save goes to a temporary file and is swapped in, so a crash cannot leave it half-written.
+- Business rules live in the database, not just on screen: issued invoices and credit notes cannot be edited or deleted, payments cannot exceed what is owed, credit cannot exceed the invoice, and issuing the same draft twice fails instead of duplicating.
+- Manual backup via File > Back Up Data.
+
+SCREENS
+Dashboard, Invoices, Quotations, Payments, Products, Customers, Reports, Settings, Help.
+
+KEYBOARD SHORTCUTS
+Ctrl+N new invoice | Ctrl+Shift+N new quotation | Ctrl+S save draft | Ctrl+Shift+S save PDF | Ctrl+P print | Ctrl+F search | Ctrl+1..8 switch screen | Ctrl+Shift+P parked invoices | F1 help
+
+BEFORE REAL BILLING
+- Set the real company profile in Settings (app ships with placeholders).
+- Have an accountant check the GST output; GSTR-1 sheets are not yet verified against the GST portal. B2C Large is not split out.
+- Use one computer only until cloud numbering exists.
+- Back up by hand; no automatic backup yet.
+
+ROADMAP
+Done: desktop foundation, editor and GST engine, numbering/payments/credit notes/reports/Excel, Windows menu/themes/help/installer.
+Planned: login, roles and device approval; cloud database and multi-computer sync; Google Sheets reporting; automatic updates and a code-signed installer.
+
+REPOSITORY
+https://github.com/Sachin1724/Skyrobiller

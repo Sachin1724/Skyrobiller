@@ -1,0 +1,16 @@
+{
+  "typescript.tsserver.watchOptions": {
+    "excludeDirectories": [
+      "**/node_modules",
+      "**/references",
+      "**/dist",
+      "**/dist-electron"
+    ]
+  },
+  "files.exclude": {
+    "references": false
+  },
+  "search.exclude": {
+    "**/references": true
+  }
+}
