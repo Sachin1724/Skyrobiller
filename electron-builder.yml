@@ -17,6 +17,7 @@ win:
       arch:
         - x64
 nsis:
+  artifactName: Skyro-Biller-Setup-${version}.${ext} # no spaces: GitHub renames spaced files, which would break the updater's latest.yml
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
@@ -24,3 +25,11 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Skyro Biller
 
+# New versions are published as GitHub Releases; the installed app checks there and updates itself
+portable:
+  artifactName: Skyro-Biller-${version}-portable.${ext}
+
+publish:
+  provider: github
+  owner: Sachin1724
+  repo: Skyrobiller

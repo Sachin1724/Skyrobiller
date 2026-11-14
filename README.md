@@ -57,7 +57,13 @@ It runs on one computer and keeps everything in a local database. No account, no
 
 Thirteen invoice layouts. All carry the same content, including state code, reverse charge, amount in words and E. & O.E.
 
-## Install
+## Install and update
+
+Download `Skyro-Biller-Setup-<version>.exe` from the [Releases page](https://github.com/Sachin1724/Skyrobiller/releases) and run it. The installed app checks GitHub for a newer version a few seconds after it starts (and under Help > Check for Updates), downloads it, and asks you to restart. The `-portable.exe` does not update itself.
+
+To publish an update: bump `version` in `package.json`, run `npm run build:win`, then create a GitHub release for the tag and upload the installer, its `.blockmap` and `latest.yml`.
+
+## Build it yourself
 
 There is no download page yet. Build the installer yourself:
 

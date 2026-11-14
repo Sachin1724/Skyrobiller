@@ -9,6 +9,9 @@ import { initDatabase, queryDb, executeDb, batchDb, saveDatabase, backupDatabase
 import { getBackupStatus, runAutoBackup, writeBackupSettings, type BackupSettings } from './backup';
 import { logError, logFilePath, installCrashLogging } from './log';
 import { buildMenu } from './menu';
+import electronUpdater from 'electron-updater';
+
+const { autoUpdater } = electronUpdater; // CommonJS package, imported by default in this ES module
 import type { DeviceInfo } from '../../src/types/electron';
 
 // The bundle is an ES module ("type": "module"), which has no __dirname
@@ -247,16 +250,32 @@ ipcMain.handle('pdf:print', async (_event, { htmlContent }) => {
   }
 });
 
+// Updates come from GitHub Releases (see "publish" in electron-builder.yml). Only an installed build can update:
+// the portable exe and a dev run cannot, and say so.
+let updateReady = false;
+function checkForUpdates(manual: boolean) {
+  if (!app.isPackaged) {
+    if (manual) dialog.showMessageBox({ type: 'info', title: 'Check for Updates', message: 'Updates work in the installed app.', detail: `This is a development run of ${app.getVersion()}.` });
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.removeAllListeners();
+  autoUpdater.on('update-available', (info) => { if (manual) dialog.showMessageBox({ type: 'info', title: 'Update found', message: `Version ${info.version} is downloading.`, detail: 'You will be asked to restart when it is ready. Your data is not touched.' }); });
+  autoUpdater.on('update-not-available', () => { if (manual) dialog.showMessageBox({ type: 'info', title: 'Check for Updates', message: `You have the latest version (${app.getVersion()}).` }); });
+  autoUpdater.on('error', (err) => { logError('updater', err); if (manual) dialog.showMessageBox({ type: 'warning', title: 'Check for Updates', message: 'Could not check for updates.', detail: 'Check your internet connection and try again.' }); });
+  autoUpdater.on('update-downloaded', async (info) => {
+    if (updateReady) return;
+    updateReady = true;
+    const { response } = await dialog.showMessageBox({ type: 'question', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, title: 'Update ready', message: `Skyro Biller ${info.version} is ready.`, detail: 'Restart to finish updating. Your data is kept, and a backup is saved on exit.' });
+    if (response === 0) { saveDatabase(); runAutoBackup(true); autoUpdater.quitAndInstall(); }
+  });
+  autoUpdater.checkForUpdates().catch((err) => logError('updater', err));
+}
+
 function installMenu() {
   Menu.setApplicationMenu(buildMenu({
     send: (action) => win?.webContents.send('menu', action),
-    // ponytail: no update source chosen yet; wire electron-updater here once releases have a home
-    checkForUpdates: () => dialog.showMessageBox({
-      type: 'info',
-      title: 'Check for Updates',
-      message: `You have Skyro Biller ${app.getVersion()}.`,
-      detail: 'Automatic updates are not connected yet: a download location for new versions has not been chosen.',
-    }),
+    checkForUpdates: () => checkForUpdates(true),
     openDataFolder: () => shell.openPath(path.join(app.getPath('userData'), 'data')),
     about: () => dialog.showMessageBox({
       type: 'info',
@@ -285,6 +304,7 @@ if (!app.requestSingleInstanceLock()) {
       setInterval(() => runAutoBackup(), 60 * 60 * 1000); // catches the day rolling over while the app stays open
       installMenu();
       await createWindow();
+      setTimeout(() => checkForUpdates(false), 8000); // quietly, a few seconds after start
     } catch (err: any) {
       console.error('Startup error:', err);
       dialog.showErrorBox('Skyro Biller could not start', err.message);
