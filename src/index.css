@@ -47,6 +47,11 @@
     line-height: 1.45;
   }
 
+  /* The hidden attribute must win over layout classes such as grid and flex, or a hidden panel still takes up space */
+  [hidden] {
+    display: none !important;
+  }
+
   h1, h2 {
     text-wrap: balance;
   }
