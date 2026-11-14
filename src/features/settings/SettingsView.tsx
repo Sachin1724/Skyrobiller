@@ -500,7 +500,7 @@ export const SettingsView: React.FC = () => {
                 <dt className="text-ink-2">Automatic backup</dt>
                 <dd><label className="flex items-center gap-2"><input type="checkbox" checked={backup.enabled} onChange={(e) => changeBackup({ enabled: e.target.checked })} className="accent-accent" />Back up daily</label></dd>
                 <dt className="text-ink-2">Folder</dt>
-                <dd className="flex items-center gap-2 min-w-0"><span className="truncate" title={backup.effectiveFolder}>{backup.effectiveFolder}</span><button onClick={chooseFolder} className="btn shrink-0">Change…</button></dd>
+                <dd className="flex items-center gap-2 min-w-0"><span className="truncate" title={backup.effectiveFolder}>{backup.effectiveFolder}{!backup.folder && <span className="ml-2 text-xs text-warn">(default, on this computer)</span>}</span><button onClick={chooseFolder} className="btn shrink-0">Change…</button></dd>
                 <dt className="text-ink-2">Keep last</dt>
                 <dd><input type="number" min={1} max={365} defaultValue={backup.keep} onBlur={(e) => changeBackup({ keep: Number(e.target.value) })} aria-label="Number of automatic backups to keep" className="field w-20 num" /></dd>
                 <dt className="text-ink-2">Last backup</dt>

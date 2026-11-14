@@ -35,7 +35,7 @@ export const DashboardView: React.FC = () => {
     { label: 'Add your first product', done: setup.products > 0, go: 'products' },
     { label: 'Add your first customer', done: setup.customers > 0, go: 'customers' },
     { label: 'Issue your first invoice', done: setup.invoices > 0, go: 'invoices' },
-    { label: 'Choose a backup folder', done: !!backup?.folder, go: 'settings' },
+    { label: 'Pick a USB or cloud folder for backups (daily backups already run on this PC)', done: !!backup?.folder, go: 'settings' },
   ] : [];
   const stepsDone = steps.filter((x) => x.done).length;
   const showChecklist = setup && !setup.dismissed && stepsDone < steps.length;

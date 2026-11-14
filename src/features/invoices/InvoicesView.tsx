@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from '../../store/useToastStore';
 import { friendlyError } from '../../lib/friendlyError';
-import { Search, Play, Trash2, FileDown, FileText, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
+import { Search, Play, Trash2, FileDown, FileText, Wrench, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
@@ -18,6 +18,7 @@ import { SkeletonRows, EmptyState } from '../../components/Skeleton';
 import { InvoiceEditor } from './InvoiceEditor';
 import { CreditNoteModal } from './CreditNoteModal';
 import { DebitNoteModal } from './DebitNoteModal';
+import { CorrectInvoiceModal } from './CorrectInvoiceModal';
 import { PaymentModal } from '../payments/PaymentModal';
 
 type Tab = 'issued' | 'drafts' | 'parked' | 'credits' | 'debits';
@@ -46,6 +47,7 @@ export const InvoicesView: React.FC = () => {
   const [paying, setPaying] = useState<Invoice | null>(null);
   const [crediting, setCrediting] = useState<Invoice | null>(null);
   const [debiting, setDebiting] = useState<Invoice | null>(null);
+  const [correcting, setCorrecting] = useState<Invoice | null>(null);
   const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice?: Invoice } | null>(null);
   const [error, setError] = useState('');
 
@@ -101,6 +103,24 @@ export const InvoicesView: React.FC = () => {
       title: `Cancel invoice ${inv.invoiceNumber}?`, details: [['Customer', inv.customer.businessName], ['Total', formatCurrencyINR(inv.total)]],
       message: 'The number stays used and the invoice is kept as cancelled. This cannot be undone.', confirmLabel: 'Cancel Invoice', cancelLabel: 'Keep Invoice', danger: true,
     })) run(cancelInvoice(inv.id));
+  };
+
+  // "Start again": the editable copy is saved first, so a failure never leaves the user with neither bill
+  const handleRestart = async (inv: Invoice) => {
+    if (!(await confirmDialog({
+      title: `Cancel ${inv.invoiceNumber} and start a new bill?`, details: [['Customer', inv.customer.businessName], ['Total', formatCurrencyINR(inv.total)]],
+      message: 'The invoice is cancelled (its number stays used, shown as cancelled). A new draft with the same customer and items opens so you can fix it and issue it again.',
+      confirmLabel: 'Cancel and Start New Bill', cancelLabel: 'Keep Invoice', danger: true,
+    }))) return;
+    const draftId = newDraftId('invoice');
+    try {
+      await saveDraft({ draftId, kind: 'invoice', isParked: false, customer: inv.customer, items: inv.items, total: inv.total, notes: inv.notes, validUntil: '', status: 'draft' });
+      await cancelInvoice(inv.id);
+      toast.info(`${inv.invoiceNumber} cancelled. Fix the new bill and issue it.`);
+      setActiveInvoiceDraftId(draftId);
+    } catch (e) {
+      fail(e);
+    }
   };
 
   // Same customer and lines in a fresh draft, for repeat orders
@@ -219,11 +239,12 @@ export const InvoicesView: React.FC = () => {
                       <RowMenu
                         label={`More actions for ${n}`}
                         items={[
-                          { label: 'Issue credit note', icon: Undo2, onClick: () => setCrediting(inv), disabled: inv.status === 'cancelled' || inv.credited >= inv.total + inv.debited - 0.005, title: 'Lowers what the customer owes' },
-                          { label: 'Issue debit note', icon: FilePlus, onClick: () => setDebiting(inv), disabled: inv.status === 'cancelled', title: 'Raises what the customer owes' },
-                          { label: 'Duplicate as new draft', icon: Copy, onClick: () => handleDuplicate(inv) },
+                          { label: 'Correct this invoice…', icon: Wrench, onClick: () => setCorrecting(inv), disabled: inv.status === 'cancelled', title: 'Wrong customer, items or amount? Start here' },
+                          { label: 'Reduce amount (credit note)', icon: Undo2, onClick: () => setCrediting(inv), disabled: inv.status === 'cancelled' || inv.credited >= inv.total + inv.debited - 0.005, title: 'Goods returned or a discount: the customer owes less' },
+                          { label: 'Charge extra (debit note)', icon: FilePlus, onClick: () => setDebiting(inv), disabled: inv.status === 'cancelled', title: 'Forgot a charge or the price was too low: the customer owes more' },
+                          { label: 'Copy as a new bill', icon: Copy, onClick: () => handleDuplicate(inv), title: 'Starts a new draft with the same customer and items' },
                           {
-                            label: 'Cancel invoice', icon: Ban, danger: true, onClick: () => handleCancel(inv),
+                            label: 'Cancel this invoice', icon: Ban, danger: true, onClick: () => handleCancel(inv),
                             disabled: inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0 || inv.debited > 0,
                             title: inv.paid > 0 || inv.credited > 0 || inv.debited > 0 ? 'Invoices with payments, credit notes or debit notes cannot be cancelled' : undefined,
                           },
@@ -367,6 +388,17 @@ export const InvoicesView: React.FC = () => {
         <CreditNoteModal
           invoice={crediting}
           onClose={(saved) => { setCrediting(null); if (saved) { setTab('credits'); reload(); } }}
+        />
+      )}
+      {correcting && (
+        <CorrectInvoiceModal
+          invoice={correcting}
+          onClose={() => setCorrecting(null)}
+          onChoose={(fix) => {
+            const inv = correcting;
+            setCorrecting(null);
+            if (fix === 'reduce') setCrediting(inv); else if (fix === 'increase') setDebiting(inv); else handleRestart(inv);
+          }}
         />
       )}
       {debiting && (

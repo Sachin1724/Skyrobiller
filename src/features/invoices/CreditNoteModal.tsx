@@ -37,7 +37,7 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
   };
 
   return (
-    <Modal wide title={`Credit Note · ${invoice.invoiceNumber}`} onClose={() => onClose(false)}>
+    <Modal wide title={`Reduce Amount (Credit Note) · ${invoice.invoiceNumber}`} onClose={() => onClose(false)}>
       <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
         <p className="text-ink-2">
           {invoice.customer.businessName} · Invoice {formatCurrencyINR(invoice.total)} · Already credited {formatCurrencyINR(invoice.credited)}

@@ -1,16 +1,24 @@
 // A4 HTML for invoices and quotations, rendered to PDF by Electron's printToPDF.
-// One shared body and four looks (CSS only), plus accent presets and a density setting.
+// One shared body and thirteen looks (CSS only), plus accent presets and a density setting.
 // Type-only static imports here: scripts/gst.check.ts loads this file directly under Node.
 import type { InvoiceLine, InvoiceTotals } from './gst';
 import type { Customer, Invoice, CreditNote, DebitNote } from './db';
 import type { Company } from '../store/useSystemStore';
 
-// Four layouts that look clearly different: plain, accent-titled, accent-banded, and boxed like a government form
 export const TEMPLATES = {
   minimal: 'Minimal',
   classic: 'Classic',
-  boldheader: 'Bold Header',
+  modern: 'Modern',
   bordered: 'Bordered',
+  boldheader: 'Bold Header',
+  corner: 'Corner',
+  statement: 'Statement',
+  twotone: 'Two-Tone',
+  letterhead: 'Letterhead',
+  leftrail: 'Left Rail',
+  sidebar: 'Sidebar',
+  column: 'Column',
+  compact: 'Compact',
 } as const;
 export type TemplateId = keyof typeof TEMPLATES;
 
@@ -140,7 +148,9 @@ const CSS = `
   .sign .line { margin-top: 44px; }
   pre { font: inherit; white-space: pre-wrap; }
 
-  .due { display: none; }
+  .due, .due-by, .strip { display: none; }
+  .strip { grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; padding: 10px 14px; }
+  .strip b { display: block; font-size: 13px; }
   .sign img { display: block; margin: 6px 0 0 auto; max-height: 44px; max-width: 150px; object-fit: contain; }
   .sign img + .line { margin-top: 4px; }
   .d-compact .copy { zoom: .9; }
@@ -150,6 +160,12 @@ const CSS = `
   .classic .doc .eyebrow { font-size: 24px; font-weight: 700; letter-spacing: -.01em; text-transform: none; color: var(--accent); margin-bottom: 0; }
   .classic .number { font-size: 13px; font-weight: 600; letter-spacing: 0; }
   .classic .items th { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Modern: stacked header, sender above a wide rule */
+  .modern header { flex-direction: column; gap: 10px; border-bottom: 3px solid var(--accent); padding-bottom: 14px; }
+  .modern .doc { text-align: left; display: flex; gap: 12px; align-items: baseline; }
+  .modern .number { font-size: 18px; font-weight: 600; }
+  .modern .eyebrow { color: var(--accent); }
 
   /* Bordered: every block boxed with one black rule, the way government invoice forms look */
   .bordered header, .bordered .parties, .bordered footer { border: 1px solid #1d1d1f; margin: 0; padding: 10px 12px; }
@@ -184,6 +200,70 @@ const CSS = `
   .boldheader .items th { background: #f5f5f7; border-bottom: 0; color: #1d1d1f; }
   .boldheader .items tbody tr:nth-child(even) td { background: #fafafc; }
   .boldheader .totals .grand td { background: var(--accent); color: #fff; border-top: 0; padding: 8px 10px; }
+
+  /* Corner: an accent block top-right holds the amount and the due date, like a stamp */
+  .corner .doc { background: var(--accent); color: #fff; padding: 16px 18px; border-radius: 0 0 0 14px; margin: -24px -28px 0 0; }
+  .corner .doc .eyebrow, .corner .doc .copy-label, .corner .doc .due-by { color: rgba(255, 255, 255, .82); }
+  .corner .doc .cancelled { color: #fff; }
+  .corner .number { font-size: 13px; font-weight: 600; }
+  .corner .due { display: block; font-size: 22px; font-weight: 700; margin-top: 6px; }
+  .corner .due-by { display: block; font-size: 9px; }
+
+  /* Statement: a strip of key figures first, detail beneath */
+  .statement .strip { display: grid; background: #f5f5f7; border-radius: 8px; }
+  .statement .strip b { color: var(--accent); }
+  .statement .number { font-size: 15px; font-weight: 600; }
+
+  /* Two-Tone: a soft tint of the accent behind header and summary */
+  .twotone header, .twotone .summary { background: color-mix(in srgb, var(--accent) 10%, #fff); padding: 16px 18px; border-radius: 10px; }
+  .twotone .eyebrow { color: var(--accent); }
+
+  /* Letterhead: centred masthead between double rules */
+  .letterhead header { flex-direction: column; align-items: center; text-align: center; gap: 8px; border-top: 3px double #1d1d1f; border-bottom: 3px double #1d1d1f; padding: 14px 0; }
+  .letterhead .brand { flex-direction: column; align-items: center; }
+  .letterhead .doc { text-align: center; }
+  .letterhead .number { font-size: 15px; font-weight: 600; }
+
+  /* Left Rail: one accent stripe down the left edge, the only colour on the page */
+  .leftrail .copy { border-left: 5px solid var(--accent); }
+  .leftrail .eyebrow { color: var(--accent); }
+  .leftrail .totals .grand td { color: #1d1d1f; }
+
+  /* Sidebar: an accent rail carries the sender and document details; the main column holds the rest */
+  .sidebar .copy { display: grid; grid-template-columns: 172px 1fr; column-gap: 22px; padding: 0 28px 0 0; }
+  .sidebar header { grid-column: 1; grid-row: 1 / span 6; flex-direction: column; background: var(--accent); color: #fff; padding: 24px 16px; margin: 0; }
+  .sidebar header .muted, .sidebar header .eyebrow, .sidebar header .copy-label { color: rgba(255, 255, 255, .82); }
+  .sidebar header .cancelled { color: #fff; }
+  .sidebar .brand { flex-direction: column; }
+  .sidebar .brand img { background: #fff; border-radius: 6px; padding: 4px; }
+  .sidebar .doc { text-align: left; white-space: normal; }
+  .sidebar .number { font-size: 15px; font-weight: 600; }
+  .sidebar .parties, .sidebar .items, .sidebar .summary, .sidebar .words, .sidebar footer { grid-column: 2; }
+  .sidebar .parties { margin-top: 24px; }
+  .sidebar footer { margin-bottom: 24px; }
+
+  /* Column: a narrow column of metadata runs beside the items, hairlines only */
+  .column .copy { display: grid; grid-template-columns: 150px 1fr; column-gap: 22px; }
+  .column header { grid-column: 1 / -1; border-bottom: 1px solid #1d1d1f; padding-bottom: 14px; }
+  .column .parties { grid-column: 1; grid-row: 2 / span 5; display: block; border-right: 1px solid #e5e5ea; padding-right: 14px; }
+  .column .parties > div + div { margin-top: 16px; }
+  .column .items, .column .summary, .column .words, .column footer { grid-column: 2; }
+  .column .items { margin-top: 0; }
+  .column .number { font-size: 16px; font-weight: 600; }
+
+  /* Compact: receipt-tight; dates run as one strip under the header */
+  .compact .copy { padding: 14px 18px; line-height: 1.35; }
+  .compact header { margin-bottom: 10px; }
+  .compact .number { font-size: 15px; font-weight: 600; }
+  .compact .strip { display: grid; padding: 6px 0; margin-bottom: 10px; border-top: 1px solid #1d1d1f; border-bottom: 1px solid #1d1d1f; }
+  .compact .strip b { font-size: 11px; }
+  .compact .parties { grid-template-columns: 1fr; }
+  .compact .parties > div + div { display: none; }
+  .compact .items { margin-top: 10px; }
+  .compact .items td { padding: 3px 6px; }
+  .compact .summary { margin-top: 8px; }
+  .compact footer { margin-top: 12px; padding-top: 8px; }
+  .compact .sign .line { margin-top: 24px; }
 `;
 
 export function documentHtml(d: PrintableDocument, look: Look): string {
@@ -222,10 +302,18 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
         <p class="eyebrow">${esc(d.title)}</p>
         <p class="number">${esc(d.number)}</p>
         <p class="due">₹ ${inr(t.total)}</p>
+        ${d.secondDate ? `<p class="due-by">${d.secondDateLabel} ${date(d.secondDate)}</p>` : ''}
         ${copyLabel ? `<p class="copy-label">${esc(copyLabel)}</p>` : ''}
         ${d.cancelled ? '<p class="cancelled">CANCELLED</p>' : ''}
       </div>
     </header>
+
+    <div class="strip">
+      <div><span class="muted">Number</span><b>${esc(d.number)}</b></div>
+      <div><span class="muted">Date</span><b>${date(d.date)}</b></div>
+      <div><span class="muted">${d.secondDateLabel}</span><b>${date(d.secondDate) || '-'}</b></div>
+      <div><span class="muted">Total</span><b>₹ ${inr(t.total)}</b></div>
+    </div>
 
     <section class="parties">
       <div>

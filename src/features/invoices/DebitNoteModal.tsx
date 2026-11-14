@@ -47,7 +47,7 @@ export const DebitNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: boole
   };
 
   return (
-    <Modal wide title={`Debit Note · ${invoice.invoiceNumber}`} onClose={() => onClose(false)}>
+    <Modal wide title={`Charge Extra (Debit Note) · ${invoice.invoiceNumber}`} onClose={() => onClose(false)}>
       <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
         <p className="text-ink-2">
           {invoice.customer.businessName} · Invoice {formatCurrencyINR(invoice.total)}{invoice.debited > 0 && ` · Already debited ${formatCurrencyINR(invoice.debited)}`}.
