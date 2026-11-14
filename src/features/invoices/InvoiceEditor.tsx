@@ -3,6 +3,7 @@ import { toast } from '../../store/useToastStore';
 import { friendlyError } from '../../lib/friendlyError';
 import { ArrowLeft, PauseCircle, Trash2, CheckCircle2, FileDown, Plus, AlertTriangle, Printer } from 'lucide-react';
 import { SearchBox } from '../../components/SearchBox';
+import { NumInput } from '../../components/NumInput';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import {
@@ -458,10 +459,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
                   </>
                 )}
                 <td>
-                  <input aria-label={`Quantity of item ${i + 1}`} data-field={`qty-${i}`} aria-invalid={bad('qty', i)} type="number" min="0" step="1" value={l.qty} onChange={(e) => setLine(i, { qty: num(e.target.value) })} className="field num" />
+                  <NumInput aria-label={`Quantity of item ${i + 1}`} data-field={`qty-${i}`} aria-invalid={bad('qty', i)} step="1" value={l.qty} onChange={(n) => setLine(i, { qty: n })} className="field num" />
                 </td>
                 <td>
-                  <input aria-label={`Rate of item ${i + 1}`} data-field={`rate-${i}`} type="number" min="0" step="0.01" value={l.rate} onChange={(e) => setLine(i, { rate: num(e.target.value) })} className="field num" />
+                  <NumInput aria-label={`Rate of item ${i + 1}`} data-field={`rate-${i}`} step="0.01" value={l.rate} onChange={(n) => setLine(i, { rate: n })} className="field num" />
                   {l.productId && l.rate !== l.catalogRate && (
                     <div className="mt-1 text-right text-xs text-ink-2">
                       Catalogue {formatCurrencyINR(l.catalogRate ?? 0)}{' · '}
@@ -470,7 +471,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
                   )}
                 </td>
                 <td>
-                  <input aria-label={`Discount percent on item ${i + 1}`} data-field={`discount-${i}`} type="number" min="0" max="100" step="0.5" value={l.discountPct} onChange={(e) => setLine(i, { discountPct: num(e.target.value, 100) })} className="field num" />
+                  <NumInput aria-label={`Discount percent on item ${i + 1}`} data-field={`discount-${i}`} max={100} step="0.5" value={l.discountPct} onChange={(n) => setLine(i, { discountPct: n })} className="field num" />
                 </td>
                 <td className="num">
                   {l.productId ? `${l.gstRate}%` : (

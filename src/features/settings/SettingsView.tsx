@@ -11,6 +11,7 @@ import { useSystemStore, type Company, type Prefs } from '../../store/useSystemS
 import { useMenuAction, type AppModule } from '../../store/useNavStore';
 import { compressImage } from '../../lib/image';
 import { confirmDialog } from '../../components/ConfirmDialog';
+import { NumInput } from '../../components/NumInput';
 import type { BackupSettings } from '../../types/electron';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
@@ -463,7 +464,7 @@ export const SettingsView: React.FC = () => {
                 <span className="text-xs font-normal text-ink-3">Pre-selected for new items.</span>
               </label>
               <label className="label">Default Payment Terms (Days)
-                <input type="number" min="0" step="1" value={prefs.defaultTermsDays} onChange={(e) => setPref({ defaultTermsDays: Math.max(0, Number(e.target.value) || 0) })} className="field" />
+                <NumInput step="1" value={prefs.defaultTermsDays} onChange={(n) => setPref({ defaultTermsDays: n })} className="field" />
                 <span className="text-xs font-normal text-ink-3">Pre-filled for new customers.</span>
               </label>
               <fieldset className="space-y-2">

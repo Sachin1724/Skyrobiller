@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { friendlyError } from '../../lib/friendlyError';
 import { Modal } from '../../components/Modal';
+import { NumInput } from '../../components/NumInput';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { computeInvoice } from '../../lib/gst';
 import { issueCreditNote, type Invoice } from '../../lib/db';
@@ -60,10 +61,10 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
                   <td className="num">{l.qty} {l.unit}</td>
                   <td className="num">{formatCurrencyINR(l.rate)}</td>
                   <td>
-                    <input
+                    <NumInput
                       aria-label={`Credit quantity for ${l.description}`}
-                      type="number" min="0" max={l.qty} step="1" value={qty[i]}
-                      onChange={(e) => setQty((prev) => prev.map((q, j) => (j === i ? Math.min(l.qty, Math.max(0, Number(e.target.value) || 0)) : q)))}
+                      max={l.qty} step="1" value={qty[i]}
+                      onChange={(n) => setQty((prev) => prev.map((q, j) => (j === i ? n : q)))}
                       className="field num"
                     />
                   </td>

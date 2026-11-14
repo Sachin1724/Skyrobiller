@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { friendlyError } from '../../lib/friendlyError';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal } from '../../components/Modal';
+import { NumInput } from '../../components/NumInput';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import { issueDebitNote, type Invoice } from '../../lib/db';
@@ -79,8 +80,8 @@ export const DebitNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: boole
                       ? <input aria-label={`HSN or SAC of charge ${i + 1}`} value={r.hsnCode} onChange={(e) => setRow(i, { hsnCode: e.target.value.replace(/\D/g, '').slice(0, 8) })} inputMode="numeric" className="field w-24" />
                       : <span className="tabular-nums">{r.hsnCode}</span>}
                   </td>
-                  <td><input aria-label={`Quantity of ${r.description || `charge ${i + 1}`}`} type="number" min="0" step="1" value={r.qty} onChange={(e) => setRow(i, { qty: num(e.target.value) })} className="field num" /></td>
-                  <td><input aria-label={`Extra rate of ${r.description || `charge ${i + 1}`}`} type="number" min="0" step="0.01" value={r.rate} onChange={(e) => setRow(i, { rate: num(e.target.value) })} className="field num" /></td>
+                  <td><NumInput aria-label={`Quantity of ${r.description || `charge ${i + 1}`}`} step="1" value={r.qty} onChange={(n) => setRow(i, { qty: n })} className="field num" /></td>
+                  <td><NumInput aria-label={`Extra rate of ${r.description || `charge ${i + 1}`}`} step="0.01" value={r.rate} onChange={(n) => setRow(i, { rate: n })} className="field num" /></td>
                   <td className="num">
                     {r.custom
                       ? <select aria-label={`GST rate of charge ${i + 1}`} value={r.gstRate} onChange={(e) => setRow(i, { gstRate: Number(e.target.value) })} className="field w-20">{[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}%</option>)}</select>
