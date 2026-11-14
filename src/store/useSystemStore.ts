@@ -61,7 +61,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   company: {
     legalName: 'Skyro Technologies Pvt Ltd',
     tradeName: 'Skyro UAV Systems',
-    gstin: '21AAACS1234D1Z5',
+    gstin: '21AAACS1234D1Z8', // sample: passes the check-character test so Settings can be saved before the real one is known
     stateCode: '21',
     stateName: 'Odisha',
     phone: '+91 98765 43210',

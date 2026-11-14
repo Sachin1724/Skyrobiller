@@ -99,7 +99,7 @@ export const DashboardView: React.FC = () => {
     ...(openQuotes ? [{ id: 'quotes', icon: ClipboardList, tone: 'info' as const, text: `${openQuotes} open quotation${openQuotes > 1 ? 's' : ''}`, action: 'Open', run: () => setCurrentModule('quotations') }] : []),
     ...(!showChecklist && backupStale ? [{ id: 'backup', icon: DatabaseBackup, tone: 'warn' as const, text: backup?.lastAt ? 'The last backup is more than 3 days old' : 'No backup has been taken yet', action: 'Fix', run: () => setCurrentModule('settings') }] : []),
     ...(!showChecklist && !company.logo ? [{ id: 'logo', icon: ImageOff, tone: 'info' as const, text: 'Logo not uploaded', action: 'Add', run: () => setCurrentModule('settings') }] : []),
-    ...(!showChecklist && company.gstin === '21AAACS1234D1Z5' ? [{ id: 'profile', icon: ShieldCheck, tone: 'warn' as const, text: 'Company profile still has sample details', action: 'Edit', run: () => setCurrentModule('settings') }] : []),
+    ...(!showChecklist && (company.gstin === '21AAACS1234D1Z5' || company.gstin === '21AAACS1234D1Z8') ? [{ id: 'profile', icon: ShieldCheck, tone: 'warn' as const, text: 'Company profile still has sample details', action: 'Edit', run: () => setCurrentModule('settings') }] : []),
   ];
   const TONE = { danger: 'text-danger bg-danger/10', warn: 'text-warn bg-warn/10', info: 'text-accent bg-accent/10' };
 

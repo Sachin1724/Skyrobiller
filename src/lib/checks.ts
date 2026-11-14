@@ -37,7 +37,7 @@ export function gstinCheckChar(first14: string): string {
 export const isValidGstin = (gstin: string) => GSTIN_FORMAT.test(gstin) && gstinCheckChar(gstin.slice(0, 14)) === gstin[14];
 
 // The sample profile the app ships with: bills must not go out under these details
-const PLACEHOLDER = { gstin: '21AAACS1234D1Z5', account: '50200088991234' };
+const PLACEHOLDER = { gstins: ['21AAACS1234D1Z5', '21AAACS1234D1Z8'], account: '50200088991234' };
 
 export function checkInvoice({ kind, customer, items, total, company, dues, issuedToday }: CheckInput): Issue[] {
   const issues: Issue[] = [];
@@ -71,7 +71,7 @@ export function checkInvoice({ kind, customer, items, total, company, dues, issu
     if (items.length > 0 && issuedToday.some((i) => Math.abs(i.total - total) < 0.005 && i.items === items.length)) {
       warn('duplicate', 'An invoice with the same total and item count was already issued to this customer today.');
     }
-    if (company.gstin === PLACEHOLDER.gstin || company.accountNumber === PLACEHOLDER.account) {
+    if (PLACEHOLDER.gstins.includes(company.gstin) || company.accountNumber === PLACEHOLDER.account) {
       warn('company', 'The company profile still has the sample details. Set the real ones in Settings.');
     }
   }
