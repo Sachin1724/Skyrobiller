@@ -2,7 +2,7 @@
 // One shared body and thirteen looks (CSS only), plus accent presets and a density setting.
 // Type-only static imports here: scripts/gst.check.ts loads this file directly under Node.
 import type { InvoiceLine, InvoiceTotals } from './gst';
-import type { Customer, Invoice, CreditNote, DebitNote } from './db';
+import type { Customer, Invoice, CreditNote, DebitNote, Payment } from './db';
 import type { Company } from '../store/useSystemStore';
 
 export const TEMPLATES = {
@@ -73,6 +73,11 @@ export interface PrintableDocument {
   items: InvoiceLine[];
   totals: InvoiceTotals;
   notes: string;
+  paid?: number;
+  credited?: number;
+  debited?: number;
+  balanceDue?: number;
+  payments?: Payment[];
 }
 
 // How the document looks; comes from the current Settings, not from the invoice snapshot
@@ -121,6 +126,9 @@ const CSS = `
   .number { font-size: 22px; font-weight: 300; letter-spacing: -.02em; line-height: 1.15; }
   .copy-label { font-size: 9px; color: #6e6e73; margin-top: 2px; }
   .cancelled { color: #d70015; font-weight: 600; letter-spacing: .1em; }
+  .stamp { display: inline-block; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; font-size: 10px; margin-top: 4px; border: 1.5px solid currentColor; }
+  .stamp-paid { color: #027a48; background: rgba(2, 122, 72, 0.08); }
+  .stamp-partial { color: #b54708; background: rgba(181, 71, 8, 0.08); }
   .parties { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; }
   table { width: 100%; border-collapse: collapse; }
   .items { margin-top: 22px; }
@@ -193,6 +201,8 @@ const CSS = `
   .boldheader header { background: var(--accent); color: #fff; padding: 18px 20px; border-radius: 10px; align-items: center; }
   .boldheader header .eyebrow, .boldheader header .muted, .boldheader header .copy-label { color: rgba(255, 255, 255, .82); }
   .boldheader header .cancelled { color: #fff; }
+  .boldheader header .stamp-paid, .corner .doc .stamp-paid, .sidebar header .stamp-paid { color: #86efac; border-color: #86efac; background: rgba(255,255,255,0.15); }
+  .boldheader header .stamp-partial, .corner .doc .stamp-partial, .sidebar header .stamp-partial { color: #fde047; border-color: #fde047; background: rgba(255,255,255,0.15); }
   .boldheader .brand img { background: #fff; border-radius: 6px; padding: 4px; }
   .boldheader .number { font-size: 14px; font-weight: 600; }
   .boldheader .due { display: block; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
@@ -307,10 +317,12 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
       <div class="doc">
         <p class="eyebrow">${esc(d.title)}</p>
         <p class="number">${esc(d.number)}</p>
-        <p class="due">₹ ${inr(t.total)}</p>
+        <p class="due">₹ ${inr(d.balanceDue !== undefined && d.paid ? d.balanceDue : t.total)}</p>
         ${d.secondDate ? `<p class="due-by">${d.secondDateLabel} ${date(d.secondDate)}</p>` : ''}
         ${copyLabel ? `<p class="copy-label">${esc(copyLabel)}</p>` : ''}
         ${d.cancelled ? '<p class="cancelled">CANCELLED</p>' : ''}
+        ${!d.cancelled && d.paid && d.paid > 0 && (d.balanceDue ?? 0) <= 0.005 ? '<p class="stamp stamp-paid">PAID</p>' : ''}
+        ${!d.cancelled && d.paid && d.paid > 0 && (d.balanceDue ?? 0) > 0.005 ? '<p class="stamp stamp-partial">PARTIALLY PAID</p>' : ''}
       </div>
     </header>
 
@@ -318,7 +330,7 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
       <div><span class="muted">Number</span><b>${esc(d.number)}</b></div>
       <div><span class="muted">Date</span><b>${date(d.date)}</b></div>
       <div><span class="muted">${d.secondDateLabel}</span><b>${date(d.secondDate) || '-'}</b></div>
-      <div><span class="muted">Total</span><b>₹ ${inr(t.total)}</b></div>
+      <div><span class="muted">${d.paid && d.paid > 0 ? 'Balance Due' : 'Total'}</span><b>₹ ${inr(d.balanceDue !== undefined && d.paid ? d.balanceDue : t.total)}</b></div>
     </div>
 
     <section class="parties">
@@ -356,7 +368,16 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
         <tr><td>Taxable Value</td><td class="n">${inr(t.taxable)}</td></tr>
         ${taxRows}
         ${t.roundOff ? `<tr><td>Round-off</td><td class="n">${inr(t.roundOff)}</td></tr>` : ''}
-        <tr class="grand"><td>Total</td><td class="n">₹ ${inr(t.total)}</td></tr>
+        <tr class="grand"><td>Invoice Total</td><td class="n">₹ ${inr(t.total)}</td></tr>
+        ${d.credited ? `<tr><td>Less: Credit Notes</td><td class="n">- ₹ ${inr(d.credited)}</td></tr>` : ''}
+        ${d.debited ? `<tr><td>Add: Debit Notes</td><td class="n">+ ₹ ${inr(d.debited)}</td></tr>` : ''}
+        ${d.paid && d.paid > 0 ? `<tr style="color: #027a48; font-weight: 500;"><td>Amount Paid</td><td class="n">- ₹ ${inr(d.paid)}</td></tr>` : ''}
+        ${d.paid && d.paid > 0 ? `
+          <tr class="grand" style="border-top: 1px solid #1d1d1f;">
+            <td><strong>${(d.balanceDue ?? 0) <= 0.005 ? 'Balance Due (Paid)' : 'Balance Due'}</strong></td>
+            <td class="n"><strong>₹ ${inr(d.balanceDue ?? 0)}</strong></td>
+          </tr>
+        ` : ''}
       </table>
     </div>
 
@@ -377,6 +398,18 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
             ${co.upiId ? `UPI ${esc(co.upiId)}` : ''}
           </div>
         </div>
+        ${d.payments && d.payments.length > 0 ? `
+          <div style="margin-top: 8px; font-size: 9px; border-top: 1px dashed #d0d5dd; padding-top: 5px;">
+            <p class="eyebrow" style="margin-bottom: 3px;">Receipts (${d.payments.length})</p>
+            ${d.payments.map((p) => `
+              <div style="display: flex; justify-content: space-between; gap: 6px; margin-bottom: 2px; color: #344054;">
+                <span style="white-space: nowrap;">${date(p.paidOn)} · ${esc(p.method)}</span>
+                <span style="font-family: monospace; color: #475467; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${esc(p.reference)}">${esc(p.reference || '—')}</span>
+                <span style="font-weight: 600; white-space: nowrap;">₹ ${inr(p.amount)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
       </div>
       <div class="sign">
         <p>For ${esc(co.legalName)}</p>
@@ -391,19 +424,30 @@ export function documentHtml(d: PrintableDocument, look: Look): string {
 <body class="${safeTemplate} d-${safeDensity}${safeLogo ? '' : ' nologo'}" style="--accent: ${safeAccent}">${(look.copies.length ? look.copies : ['']).map(copy).join('')}</body></html>`;
 }
 
-export const invoiceDocument = (inv: Invoice): PrintableDocument => ({
-  title: 'Tax Invoice',
-  number: inv.invoiceNumber,
-  date: inv.issueDate,
-  secondDateLabel: 'Due Date',
-  secondDate: inv.dueDate,
-  cancelled: inv.status === 'cancelled',
-  company: inv.company,
-  customer: inv.customer,
-  items: inv.items,
-  totals: inv.totals,
-  notes: inv.notes,
-});
+export const invoiceDocument = (inv: Invoice, payments?: Payment[]): PrintableDocument => {
+  const paid = inv.paid ?? 0;
+  const credited = inv.credited ?? 0;
+  const debited = inv.debited ?? 0;
+  const balanceDue = Math.max(0, Math.round((inv.total + debited - credited - paid) * 100) / 100);
+  return {
+    title: 'Tax Invoice',
+    number: inv.invoiceNumber,
+    date: inv.issueDate,
+    secondDateLabel: 'Due Date',
+    secondDate: inv.dueDate,
+    cancelled: inv.status === 'cancelled',
+    company: inv.company,
+    customer: inv.customer,
+    items: inv.items,
+    totals: inv.totals,
+    notes: inv.notes,
+    paid,
+    credited,
+    debited,
+    balanceDue,
+    payments,
+  };
+};
 
 // Scan-to-pay QR carrying the payee, the amount and the invoice number
 export async function upiQrSvg(company: Company, amount: number, note: string): Promise<string> {
@@ -443,6 +487,8 @@ export const debitNoteDocument = (dn: DebitNote): PrintableDocument => ({
 // `settings` is the current company profile: it decides template, colours, logo, signature, copies and the UPI id for the QR.
 export async function buildLook(d: PrintableDocument, settings: Company): Promise<Look> {
   const isInvoice = d.title === 'Tax Invoice';
+  const qrAmount = d.balanceDue !== undefined && d.paid ? d.balanceDue : d.totals.total;
+  const showQr = isInvoice && !d.cancelled && Boolean(settings.upiId) && (d.balanceDue === undefined || d.balanceDue > 0.005);
   return {
     template: settings.template,
     accent: settings.accent,
@@ -450,7 +496,7 @@ export async function buildLook(d: PrintableDocument, settings: Company): Promis
     logo: settings.logo,
     signature: settings.signature,
     copies: isInvoice ? settings.copies : [],
-    qrSvg: isInvoice && !d.cancelled && settings.upiId ? await upiQrSvg(settings, d.totals.total, d.number) : undefined,
+    qrSvg: showQr ? await upiQrSvg(settings, qrAmount, d.number) : undefined,
   };
 }
 

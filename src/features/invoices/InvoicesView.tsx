@@ -6,7 +6,7 @@ import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import {
-  listDrafts, listInvoices, listCreditNotes, listDebitNotes, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf, daysOverdue,
+  listDrafts, listInvoices, listCreditNotes, listDebitNotes, listPaymentsForInvoice, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf, daysOverdue,
   type Draft, type Invoice, type CreditNote, type DebitNote,
 } from '../../lib/db';
 import { invoiceDocument, creditNoteDocument, debitNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
@@ -137,9 +137,27 @@ export const InvoicesView: React.FC = () => {
   const openPreview = (doc: PrintableDocument, invoice?: Invoice) =>
     buildLook(doc, company).then((look) => setPreview({ doc, html: documentHtml(doc, look), invoice })).catch(fail);
 
+  const handlePreviewInvoice = async (inv: Invoice) => {
+    try {
+      const payments = await listPaymentsForInvoice(inv.id);
+      openPreview(invoiceDocument(inv, payments), inv);
+    } catch {
+      openPreview(invoiceDocument(inv), inv);
+    }
+  };
+
+  const handlePdfInvoice = async (inv: Invoice) => {
+    try {
+      const payments = await listPaymentsForInvoice(inv.id);
+      await savePdf(invoiceDocument(inv, payments), company);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
   const term = searchTerm.toLowerCase();
-  const matches = (...values: string[]) => values.some((v) => v.toLowerCase().includes(term));
-  const shownInvoices = invoices.filter((i) => FILTERS[filter].test(i) && matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin));
+  const matches = (...values: (string | undefined)[]) => values.some((v) => v && v.toLowerCase().includes(term));
+  const shownInvoices = invoices.filter((i) => FILTERS[filter].test(i) && matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin, i.paymentReferences));
   const shownDrafts = drafts.filter((d) => matches(d.draftId, d.customer?.businessName ?? '', d.customer?.gstin ?? '') && (tab === 'parked') === d.isParked);
   const shownCredits = credits.filter((c) => matches(c.creditNumber, c.invoiceNumber, c.customer.businessName));
   const shownDebits = debits.filter((d) => matches(d.debitNumber, d.invoiceNumber, d.customer.businessName));
@@ -162,7 +180,7 @@ export const InvoicesView: React.FC = () => {
             aria-label="Search invoices"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Search number, customer or GSTIN…"
+            placeholder="Search invoice #, transaction ID, customer or GSTIN…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="field pl-8"
@@ -227,10 +245,10 @@ export const InvoicesView: React.FC = () => {
                     <td className={`num ${late > 0 ? 'text-danger font-medium' : ''}`}>{formatCurrencyINR(due)}</td>
                     <td><span className={status.badge}>{status.label}</span></td>
                     <td className="num">
-                      <button onClick={() => openPreview(invoiceDocument(inv), inv)} className="btn btn-icon" aria-label={`View ${n}`} title="View">
+                      <button onClick={() => handlePreviewInvoice(inv)} className="btn btn-icon" aria-label={`View ${n}`} title="View">
                         <Eye className="h-4 w-4" aria-hidden />
                       </button>
-                      <button onClick={() => savePdf(invoiceDocument(inv), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${n}`} title="Save PDF">
+                      <button onClick={() => handlePdfInvoice(inv)} className="btn btn-icon" aria-label={`Save PDF of ${n}`} title="Save PDF">
                         <FileDown className="h-4 w-4" aria-hidden />
                       </button>
                       <button onClick={() => setPaying(inv)} disabled={due < 0.01} className="btn btn-icon" aria-label={`Record payment for ${n}`} title="Record payment">

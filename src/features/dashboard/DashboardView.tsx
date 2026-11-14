@@ -3,7 +3,7 @@ import { FileText, FileCheck2, Printer, FileDown, ArrowRight } from 'lucide-reac
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
-import { listInvoices, listDrafts, newDraftId, financialYearOf, outstandingOf, paymentStatusOf, type Invoice } from '../../lib/db';
+import { listInvoices, listDrafts, listPaymentsForInvoice, newDraftId, financialYearOf, outstandingOf, paymentStatusOf, type Invoice } from '../../lib/db';
 import { invoiceDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { Modal } from '../../components/Modal';
 
@@ -32,10 +32,15 @@ export const DashboardView: React.FC = () => {
     'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
   });
 
-  const openPreview = (doc: PrintableDocument, invoice: Invoice) => {
-    buildLook(doc, company)
-      .then((look) => setPreview({ doc, html: documentHtml(doc, look), invoice }))
-      .catch((e) => setError(e.message));
+  const openPreview = async (inv: Invoice) => {
+    try {
+      const payments = await listPaymentsForInvoice(inv.id);
+      const doc = invoiceDocument(inv, payments);
+      const look = await buildLook(doc, company);
+      setPreview({ doc, html: documentHtml(doc, look), invoice: inv });
+    } catch (e: any) {
+      setError(e.message);
+    }
   };
 
   const today = todayISO();
@@ -102,7 +107,7 @@ export const DashboardView: React.FC = () => {
                 return (
                   <tr
                     key={inv.id}
-                    onClick={() => openPreview(invoiceDocument(inv), inv)}
+                    onClick={() => openPreview(inv)}
                     className="cursor-pointer hover:bg-surface-2 transition-colors"
                     title="Click to preview invoice"
                   >

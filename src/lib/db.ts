@@ -63,6 +63,7 @@ export interface Invoice {
   paid: number;
   credited: number; // total of credit notes against this invoice
   debited: number; // total of debit notes against this invoice
+  paymentReferences?: string;
 }
 
 // Credit and debit notes share a shape; only the number and the direction differ
@@ -289,6 +290,7 @@ interface InvoiceRow {
   paid: number;
   credited: number;
   debited: number;
+  payment_references?: string | null;
 }
 
 const toInvoice = (r: InvoiceRow): Invoice => ({
@@ -307,12 +309,14 @@ const toInvoice = (r: InvoiceRow): Invoice => ({
   paid: r.paid,
   credited: r.credited,
   debited: r.debited,
+  paymentReferences: r.payment_references ?? '',
 });
 
 const INVOICE_SELECT = `SELECT i.*,
     coalesce((SELECT sum(amount) FROM local_payments p WHERE p.invoice_id = i.id), 0) AS paid,
     coalesce((SELECT sum(total) FROM local_credit_notes c WHERE c.invoice_id = i.id), 0) AS credited,
-    coalesce((SELECT sum(total) FROM local_debit_notes d WHERE d.invoice_id = i.id), 0) AS debited
+    coalesce((SELECT sum(total) FROM local_debit_notes d WHERE d.invoice_id = i.id), 0) AS debited,
+    coalesce((SELECT group_concat(coalesce(p.reference, '') || ' ' || coalesce(p.method, ''), ' ') FROM local_payments p WHERE p.invoice_id = i.id), '') AS payment_references
   FROM local_invoices i`;
 
 export async function listInvoices(range?: { from: string; to: string }): Promise<Invoice[]> {
