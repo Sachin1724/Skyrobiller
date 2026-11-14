@@ -12,16 +12,19 @@ export type AppModule =
   | 'settings'
   | 'help';
 
+export interface InvoicesRequest { tab?: 'issued' | 'drafts' | 'parked' | 'credits' | 'debits'; filter?: 'all' | 'unpaid' | 'overdue' | 'paid' | 'cancelled' }
+
 interface NavState {
   currentModule: AppModule;
-  isParkedDrawerOpen: boolean;
+  // Another screen asking the Invoices screen to open on a tab and/or filter (dashboard cards, the Parked command)
+  invoicesRequest: InvoicesRequest | null;
   activeInvoiceDraftId: string | null;
   // A menu-bar command waiting for the screen that can carry it out. A new object each time, so repeats re-trigger.
   menuAction: { name: string } | null;
   tourOpen: boolean;
   setCurrentModule: (mod: AppModule) => void;
-  toggleParkedDrawer: () => void;
-  setParkedDrawerOpen: (open: boolean) => void;
+  openInvoices: (request?: InvoicesRequest) => void;
+  clearInvoicesRequest: () => void;
   setActiveInvoiceDraftId: (id: string | null) => void;
   dispatchMenu: (name: string) => void;
   setTourOpen: (open: boolean) => void;
@@ -29,13 +32,13 @@ interface NavState {
 
 export const useNavStore = create<NavState>((set) => ({
   currentModule: 'dashboard',
-  isParkedDrawerOpen: false,
+  invoicesRequest: null,
   activeInvoiceDraftId: null,
   menuAction: null,
   tourOpen: false,
   setCurrentModule: (mod) => set({ currentModule: mod }),
-  toggleParkedDrawer: () => set((state) => ({ isParkedDrawerOpen: !state.isParkedDrawerOpen })),
-  setParkedDrawerOpen: (open) => set({ isParkedDrawerOpen: open }),
+  openInvoices: (request = {}) => set({ currentModule: 'invoices', invoicesRequest: request, activeInvoiceDraftId: null }),
+  clearInvoicesRequest: () => set({ invoicesRequest: null }),
   setActiveInvoiceDraftId: (id) => set({ activeInvoiceDraftId: id }),
   dispatchMenu: (name) => set({ menuAction: { name } }),
   setTourOpen: (open) => set({ tourOpen: open }),

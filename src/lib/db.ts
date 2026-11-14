@@ -483,6 +483,10 @@ export async function getSetupCounts(): Promise<{ products: number; customers: n
 export const outstandingOf = (inv: Invoice) =>
   inv.status === 'cancelled' ? 0 : Math.max(0, Math.round((inv.total + inv.debited - inv.paid - inv.credited) * 100) / 100);
 
+// Whole days past the due date for an invoice that still has money outstanding; 0 when not overdue
+export const daysOverdue = (inv: Invoice) =>
+  outstandingOf(inv) < 0.01 ? 0 : Math.max(0, Math.floor((Date.parse(new Date().toLocaleDateString('en-CA')) - Date.parse(inv.dueDate)) / 86_400_000));
+
 export function paymentStatusOf(inv: Invoice): { label: string; badge: string } {
   if (inv.status === 'cancelled') return { label: 'Cancelled', badge: 'badge badge-danger' };
   if (inv.credited >= inv.total + inv.debited - 0.005) return { label: 'Credited', badge: 'badge badge-accent' };

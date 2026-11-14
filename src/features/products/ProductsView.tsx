@@ -150,7 +150,7 @@ export const ProductsView: React.FC = () => {
                 <td>{item.unit}</td>
                 <td className="tabular-nums">{item.hsnCode}</td>
                 <td className="num">{item.gstRate}%</td>
-                <td className="num font-medium">{formatCurrencyINR(item.defaultPrice)}</td>
+                <td className="num">{formatCurrencyINR(item.defaultPrice)}</td>
                 <td className="num">
                   <RowMenu label={`Actions for ${item.sku}`} items={[{ label: 'Edit product', icon: Pencil, onClick: () => openForm(item) }]} />
                 </td>

@@ -6,7 +6,7 @@ import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import {
-  listDrafts, listInvoices, listCreditNotes, listDebitNotes, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf,
+  listDrafts, listInvoices, listCreditNotes, listDebitNotes, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf, daysOverdue,
   type Draft, type Invoice, type CreditNote, type DebitNote,
 } from '../../lib/db';
 import { invoiceDocument, creditNoteDocument, debitNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
@@ -20,7 +20,7 @@ import { CreditNoteModal } from './CreditNoteModal';
 import { DebitNoteModal } from './DebitNoteModal';
 import { PaymentModal } from '../payments/PaymentModal';
 
-type Tab = 'issued' | 'drafts' | 'credits' | 'debits';
+type Tab = 'issued' | 'drafts' | 'parked' | 'credits' | 'debits';
 
 // Quick filters on the issued list; each one is a plain rule on the invoice
 const FILTERS = {
@@ -33,7 +33,7 @@ const FILTERS = {
 type FilterId = keyof typeof FILTERS;
 
 export const InvoicesView: React.FC = () => {
-  const { activeInvoiceDraftId, setActiveInvoiceDraftId, isParkedDrawerOpen } = useNavStore();
+  const { activeInvoiceDraftId, setActiveInvoiceDraftId, invoicesRequest, clearInvoicesRequest } = useNavStore();
   const company = useSystemStore((s) => s.company);
   const [tab, setTab] = useState<Tab>('issued');
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,7 +56,15 @@ export const InvoicesView: React.FC = () => {
       .then(([d, i, c, dn]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); setLoaded(true); })
       .catch((e) => setError(friendlyError(e)));
   // Refresh when the editor closes and when the parked list closes (it can delete drafts)
-  useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen, isParkedDrawerOpen]);
+  useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen]);
+
+  // Opened from the dashboard or the Parked command: jump to the requested tab and filter
+  useEffect(() => {
+    if (!invoicesRequest) return;
+    if (invoicesRequest.tab) setTab(invoicesRequest.tab);
+    setFilter(invoicesRequest.filter ?? 'all');
+    clearInvoicesRequest();
+  }, [invoicesRequest]);
 
   // File > Save As PDF and File > Print work on the invoice or credit note open in the viewer
   useMenuAction({
@@ -112,7 +120,7 @@ export const InvoicesView: React.FC = () => {
   const term = searchTerm.toLowerCase();
   const matches = (...values: string[]) => values.some((v) => v.toLowerCase().includes(term));
   const shownInvoices = invoices.filter((i) => FILTERS[filter].test(i) && matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin));
-  const shownDrafts = drafts.filter((d) => matches(d.draftId, d.customer?.businessName ?? '', d.customer?.gstin ?? ''));
+  const shownDrafts = drafts.filter((d) => matches(d.draftId, d.customer?.businessName ?? '', d.customer?.gstin ?? '') && (tab === 'parked') === d.isParked);
   const shownCredits = credits.filter((c) => matches(c.creditNumber, c.invoiceNumber, c.customer.businessName));
   const shownDebits = debits.filter((d) => matches(d.debitNumber, d.invoiceNumber, d.customer.businessName));
 
@@ -122,7 +130,8 @@ export const InvoicesView: React.FC = () => {
       <div className="flex items-center justify-between gap-4">
         <div className="segmented" role="group" aria-label="Invoice list">
           <button aria-pressed={tab === 'issued'} onClick={() => setTab('issued')}>Issued</button>
-          <button aria-pressed={tab === 'drafts'} onClick={() => setTab('drafts')}>Drafts ({drafts.length})</button>
+          <button aria-pressed={tab === 'drafts'} onClick={() => setTab('drafts')}>Drafts ({drafts.filter((d) => !d.isParked).length})</button>
+          <button aria-pressed={tab === 'parked'} onClick={() => setTab('parked')}>Parked ({drafts.filter((d) => d.isParked).length})</button>
           <button aria-pressed={tab === 'credits'} onClick={() => setTab('credits')}>Credit Notes ({credits.length})</button>
           <button aria-pressed={tab === 'debits'} onClick={() => setTab('debits')}>Debit Notes ({debits.length})</button>
         </div>
@@ -160,6 +169,7 @@ export const InvoicesView: React.FC = () => {
               <tr>
                 <th>Invoice No.</th>
                 <th>Date</th>
+                <th>Due</th>
                 <th>Customer</th>
                 <th className="num">Total</th>
                 <th className="num">Outstanding</th>
@@ -168,9 +178,9 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {!loaded && <SkeletonRows columns={7} />}
+              {!loaded && <SkeletonRows columns={8} />}
               {loaded && shownInvoices.length === 0 && (
-                <tr><td colSpan={7}>
+                <tr><td colSpan={8}>
                   {searchTerm || filter !== 'all'
                     ? <p className="empty">No invoices match this search and filter.</p>
                     : <EmptyState icon={FileText} title="No invoices issued yet" hint="Pick a customer, search for parts, and the invoice fills itself in: HSN, GST and the next invoice number." action={{ label: 'Create Your First Invoice', onClick: () => setActiveInvoiceDraftId(newDraftId('invoice')) }} />}
@@ -179,17 +189,22 @@ export const InvoicesView: React.FC = () => {
               {shownInvoices.map((inv) => {
                 const status = paymentStatusOf(inv);
                 const due = outstandingOf(inv);
+                const late = daysOverdue(inv);
                 const n = inv.invoiceNumber;
                 return (
                   <tr key={inv.id}>
                     <td className="font-medium tabular-nums whitespace-nowrap">{n}</td>
                     <td className="whitespace-nowrap">{formatDate(inv.issueDate)}</td>
+                    <td className="whitespace-nowrap">
+                      {formatDate(inv.dueDate)}
+                      {late > 0 && <div className="text-xs text-danger">{late} day{late > 1 ? 's' : ''} overdue</div>}
+                    </td>
                     <td className="max-w-xs">
                       <div className="truncate">{inv.customer.businessName}</div>
                       <div className="text-xs text-ink-2 truncate">{inv.customer.gstin || 'Unregistered'}</div>
                     </td>
-                    <td className="num font-medium">{formatCurrencyINR(inv.total)}</td>
-                    <td className="num">{formatCurrencyINR(due)}</td>
+                    <td className="num">{formatCurrencyINR(inv.total)}</td>
+                    <td className={`num ${late > 0 ? 'text-danger font-medium' : ''}`}>{formatCurrencyINR(due)}</td>
                     <td><span className={status.badge}>{status.label}</span></td>
                     <td className="num">
                       <button onClick={() => openPreview(invoiceDocument(inv), inv)} className="btn btn-icon" aria-label={`View ${n}`} title="View">
@@ -222,7 +237,7 @@ export const InvoicesView: React.FC = () => {
           </table>
         )}
 
-        {tab === 'drafts' && (
+        {(tab === 'drafts' || tab === 'parked') && (
           <table className="tbl">
             <thead>
               <tr>
@@ -237,7 +252,7 @@ export const InvoicesView: React.FC = () => {
             <tbody>
               {!loaded && <SkeletonRows columns={6} />}
               {loaded && shownDrafts.length === 0 && (
-                <tr><td colSpan={6} className="empty">{searchTerm ? 'No drafts match this search.' : 'No drafts. A bill you start is saved here automatically until you issue it.'}</td></tr>
+                <tr><td colSpan={6} className="empty">{searchTerm ? 'No drafts match this search.' : tab === 'parked' ? 'Nothing parked. Park a bill from the editor (F9) to set it aside for a waiting customer.' : 'No drafts. A bill you start is saved here automatically until you issue it.'}</td></tr>
               )}
               {shownDrafts.map((d) => (
                 <tr key={d.draftId}>
@@ -248,7 +263,7 @@ export const InvoicesView: React.FC = () => {
                   <td className="whitespace-nowrap">{formatDate(d.updatedAt)}</td>
                   <td className="max-w-xs"><div className="truncate">{d.customer?.businessName ?? 'No customer yet'}</div></td>
                   <td className="num">{d.items.length}</td>
-                  <td className="num font-medium">{formatCurrencyINR(d.total)}</td>
+                  <td className="num">{formatCurrencyINR(d.total)}</td>
                   <td className="num">
                     <RowMenu
                       label={`Actions for ${d.draftId}`}
@@ -289,7 +304,7 @@ export const InvoicesView: React.FC = () => {
                   <td className="tabular-nums whitespace-nowrap">{c.invoiceNumber}</td>
                   <td className="max-w-[14rem]"><div className="truncate">{c.customer.businessName}</div></td>
                   <td className="max-w-[14rem]"><div className="truncate">{c.reason}</div></td>
-                  <td className="num font-medium">{formatCurrencyINR(c.total)}</td>
+                  <td className="num">{formatCurrencyINR(c.total)}</td>
                   <td className="num">
                     <RowMenu
                       label={`Actions for ${c.creditNumber}`}
@@ -330,7 +345,7 @@ export const InvoicesView: React.FC = () => {
                   <td className="tabular-nums whitespace-nowrap">{d.invoiceNumber}</td>
                   <td className="max-w-[14rem]"><div className="truncate">{d.customer.businessName}</div></td>
                   <td className="max-w-[14rem]"><div className="truncate">{d.reason}</div></td>
-                  <td className="num font-medium">{formatCurrencyINR(d.total)}</td>
+                  <td className="num">{formatCurrencyINR(d.total)}</td>
                   <td className="num">
                     <RowMenu
                       label={`Actions for ${d.debitNumber}`}

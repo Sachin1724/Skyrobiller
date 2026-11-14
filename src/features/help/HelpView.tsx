@@ -20,7 +20,7 @@ const TOPICS: { title: string; steps: string[] }[] = [
       'Search and pick the customer. The place of supply decides the tax: same state as yours gives CGST + SGST, another state gives IGST.',
       'Search and pick products. Change quantity, rate or discount on any line. A changed rate applies to this invoice only, unless you choose Save to catalogue.',
       'For something not in the catalogue, use Custom Item, type its name, HSN code and GST rate. Save to Catalogue on that row adds it for next time.',
-      'Everything is saved automatically as a draft. Park puts the draft aside; resume it from Parked (Ctrl+Shift+P) or the Drafts list.',
+      'Everything is saved automatically as a draft. Park puts the draft aside; resume it from the Parked tab in Invoices (Ctrl+Shift+P opens it).',
       'Issue & Print (Ctrl+Enter) gives it the next invoice number and prints it. After that it cannot be edited or deleted. Press F9 to park a bill instead; Enter moves to the next field.',
     ],
   },

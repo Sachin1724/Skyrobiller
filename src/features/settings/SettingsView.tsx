@@ -12,7 +12,7 @@ import { confirmDialog } from '../../components/ConfirmDialog';
 import type { BackupSettings } from '../../types/electron';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
-const DASHBOARD_CARDS: [string, string][] = [['month', 'Sales This Month'], ['year', 'Sales This Financial Year'], ['outstanding', 'Outstanding'], ['progress', 'In Progress']];
+const DASHBOARD_CARDS: [string, string][] = [['month', 'Sales This Month'], ['year', 'Sales This Financial Year'], ['outstanding', 'Outstanding'], ['due', 'Due This Week']];
 const THEMES: [Prefs['theme'], string][] = [['light', 'Light'], ['dark', 'Dark'], ['system', 'Follow Windows']];
 
 const SAMPLE_ITEMS: InvoiceLine[] = [

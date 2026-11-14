@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { HeaderBar } from './components/layout/HeaderBar';
-import { ParkedInvoicesDrawer } from './components/layout/ParkedInvoicesDrawer';
 import { useNavStore, runFlushOpenWork, type AppModule } from './store/useNavStore';
 import { useSystemStore } from './store/useSystemStore';
 import { newDraftId, getSetting } from './lib/db';
@@ -137,7 +136,7 @@ export const App: React.FC = () => {
     } else if (action === 'tour') {
       nav.setTourOpen(true);
     } else if (action === 'parked') {
-      nav.toggleParkedDrawer();
+      nav.openInvoices({ tab: 'parked' });
     } else if (action === 'backup-now') {
       window.electronAPI.backupRunNow().then((status) => {
         useSystemStore.getState().setBackup(status);
@@ -214,9 +213,6 @@ export const App: React.FC = () => {
       <ConfirmHost />
       <AppLoader ready={ready} />
       {paletteOpen && <CommandPalette commands={PALETTE_COMMANDS} onRun={runCommand} onClose={() => setPaletteOpen(false)} />}
-
-      {/* Parked Invoices Drawer Overlay */}
-      <ParkedInvoicesDrawer />
 
       <ToastHost />
     </div>

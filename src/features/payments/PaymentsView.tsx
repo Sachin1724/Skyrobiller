@@ -51,7 +51,7 @@ export const PaymentsView: React.FC = () => {
                   </td>
                   <td className="num">{formatCurrencyINR(inv.total)}</td>
                   <td className="num">{formatCurrencyINR(inv.paid)}</td>
-                  <td className="num font-medium">{formatCurrencyINR(outstandingOf(inv))}</td>
+                  <td className="num">{formatCurrencyINR(outstandingOf(inv))}</td>
                   <td className="num">
                     <button onClick={() => setPaying(inv)} className="btn">Record Payment</button>
                   </td>
@@ -85,7 +85,7 @@ export const PaymentsView: React.FC = () => {
                   <td className="max-w-xs"><div className="truncate">{p.customerName}</div></td>
                   <td>{p.method}</td>
                   <td className="max-w-[12rem]"><div className="truncate">{p.reference}</div></td>
-                  <td className="num font-medium">{formatCurrencyINR(p.amount)}</td>
+                  <td className="num">{formatCurrencyINR(p.amount)}</td>
                 </tr>
               ))}
             </tbody>

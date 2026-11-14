@@ -80,7 +80,7 @@ export const QuotationsView: React.FC = () => {
                   {q.validUntil && formatDate(q.validUntil)}{' '}
                   {q.validUntil && q.validUntil < today && q.status !== 'converted' && <span className="badge badge-danger">Expired</span>}
                 </td>
-                <td className="num font-medium">{formatCurrencyINR(q.total)}</td>
+                <td className="num">{formatCurrencyINR(q.total)}</td>
                 <td>
                   {q.status === 'converted' ? (
                     <span className="badge badge-success">Converted</span>

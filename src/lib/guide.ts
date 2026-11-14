@@ -176,7 +176,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: 'Quick actions',
     body: [
       'New Invoice (Ctrl+N) starts a bill from any screen.',
-      'Parked shows bills you put aside for a waiting customer, with a count. Ctrl+Shift+P opens it.',
+      'The Parked tab in Invoices holds bills you put aside for a waiting customer, with a count. Ctrl+Shift+P opens it.',
     ],
     target: 'header-actions',
     module: 'dashboard',
