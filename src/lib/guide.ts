@@ -24,9 +24,9 @@ export const SCREENS: ScreenGuide[] = [
     name: 'Invoices',
     what: 'Create bills, and look after the ones you have issued.',
     points: [
-      'Issued: every invoice. The icons on a row are View, Save PDF, Record Payment, Credit Note, Duplicate and Cancel.',
+      'Issued: every invoice. The icons on a row are View, Save PDF, Record Payment, Credit Note, Debit Note, Duplicate and Cancel. Use the chips above the list to see only Unpaid, Overdue, Paid or Cancelled invoices.',
       'Drafts: unfinished and parked bills. Everything is saved automatically as you type.',
-      'Credit Notes: corrections against issued invoices.',
+      'Credit Notes lower what a customer owes; Debit Notes raise it. Together they are the only way to change an issued invoice.',
     ],
   },
   {

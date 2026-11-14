@@ -34,9 +34,11 @@ It runs on one computer and keeps everything in a local database. No account, no
 | **Indian GST, done for you** | CGST + SGST within your state, IGST outside it. HSN summary, round-off, amount in words. |
 | **Consecutive invoice numbers** | `SKY/2026-27/0001`, restarting each financial year. Issued invoices are locked by the database. |
 | **Drafts that never get lost** | Autosave, park a bill for a waiting customer, resume later. Closing the window saves first. |
-| **Credit notes and payments** | Part payments, overdue marking, credit notes in their own number series. |
+| **Credit and debit notes** | The only way to change an issued invoice. Each has its own number series; part payments and overdue marking included. |
+| **Audit log and backups** | Every create, change and delete is recorded by the database. Daily automatic backup, restore with a preview. |
 | **13 invoice templates** | Accent colour, three text sizes, logo, signature, UPI scan-to-pay QR, Original / Duplicate / Triplicate copies. |
-| **GST filing sheets** | GSTR-1 style B2B, B2C, HSN and credit note sheets. One click exports every report as an Excel workbook. |
+| **GST filing** | GSTR-1 sheets (B2B, B2C Large and Small, HSN, notes) plus a GSTR-1 JSON file for the GST offline tool. One click exports every report as an Excel workbook. |
+| **Command palette** | Ctrl+K jumps to any screen or action. |
 | **First-run tutorial** | A guided tour of every screen and menu starts on first launch. Replay it any time from Help > Start Tutorial. |
 | **A proper Windows program** | Menu bar, keyboard shortcuts, light and dark theme, built-in help, installer. |
 
@@ -122,9 +124,9 @@ Windows app (Electron)
 ## Before real billing
 
 - **Set your real company profile** in Settings. The app ships with placeholder details, and an issued invoice keeps whatever was saved at that moment.
-- **Have an accountant check the GST output.** The GSTR-1 sheets follow the offline tool's columns but have not been uploaded to the GST portal. B2C Large invoices are not split out.
+- **Have an accountant check the GST output.** The GSTR-1 sheets and JSON follow the offline tool's layout but have not been uploaded to the GST portal. Aggregate turnover (`gt`) is written as 0; enter it in the tool.
 - **Use one computer only.** Each computer would start its own invoice number series until cloud numbering exists.
-- **Back up by hand** with File > Back Up Data. There is no automatic backup yet.
+- **Check where backups go.** A copy is saved daily in the app data folder; point it at a USB drive or synced folder in Settings > Backup.
 
 ## Roadmap
 

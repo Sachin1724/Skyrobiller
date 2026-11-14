@@ -36,7 +36,7 @@ export function SearchBox<T>({ search, onPick, renderItem, label, placeholder, e
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, rows.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
-    else if (e.key === 'Enter' && open && rows[active]) { e.preventDefault(); pick(rows[active]); }
+    else if (e.key === 'Enter' && !e.ctrlKey && open && rows[active]) { e.preventDefault(); pick(rows[active]); }
     else if (e.key === 'Escape') setOpen(false);
   };
 

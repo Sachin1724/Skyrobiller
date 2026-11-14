@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, PauseCircle, Trash2, CheckCircle2, FileDown, Plus } from 'lucide-react';
+import { ArrowLeft, PauseCircle, Trash2, CheckCircle2, FileDown, Plus, AlertTriangle, Printer } from 'lucide-react';
 import { SearchBox } from '../../components/SearchBox';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import {
-  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, updateInvoice,
+  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, listInvoices, outstandingOf,
   type Customer, type Product, type DraftKind, type QuotationStatus, type Invoice,
 } from '../../lib/db';
-import { savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
+import { savePdf, printDocument, invoiceDocument, type PrintableDocument } from '../../lib/pdf';
 import { useMenuAction, setFlushOpenWork } from '../../store/useNavStore';
-import { formatCurrencyINR, todayISO, addDaysISO } from '../../lib/utils';
+import { formatCurrencyINR, formatDate, todayISO, addDaysISO } from '../../lib/utils';
 import { useSystemStore } from '../../store/useSystemStore';
 
 const AUTOSAVE_MS = 600;
@@ -18,13 +18,19 @@ interface Props {
   draftId: string; // a new id starts an empty document
   kind: DraftKind;
   onClose: (issuedNumber?: string) => void;
-  existingInvoice?: Invoice | null;
 }
 
-// Editor for an invoice draft, quotation, or editing an issued invoice.
-export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existingInvoice }) => {
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// What the customer already owes: shown beside the bill so a credit decision is made before issuing, not after
+interface Dues { outstanding: number; overdue: number; last: Invoice | null }
+
+// Editor for an invoice draft or a quotation. Issued invoices are never edited here: corrections are credit and debit notes.
+export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const company = useSystemStore((s) => s.company);
-  const isEditingIssued = Boolean(existingInvoice);
+  const itemsSection = useRef<HTMLElement>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [dues, setDues] = useState<Dues | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [items, setItems] = useState<InvoiceLine[]>([]);
   const [notes, setNotes] = useState('');
@@ -47,21 +53,14 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
   const persist = (isParked: boolean): Promise<void> => {
     window.clearTimeout(timer.current);
     timer.current = undefined;
-    if (isEditingIssued || closed.current || (!latest.current.customer && latest.current.items.length === 0)) {
+    if (closed.current || (!latest.current.customer && latest.current.items.length === 0)) {
       return Promise.resolve(); // nothing worth saving to drafts
     }
     const d = latest.current;
-    return saveDraft({ draftId, kind, isParked, ...d }).catch((e) => setError(`Not saved: ${e.message}. Check disk space and try again.`));
+    return saveDraft({ draftId, kind, isParked, ...d }).then(() => setSavedAt(Date.now())).catch((e) => setError(`Not saved: ${e.message}. Check disk space and try again.`));
   };
 
   useEffect(() => {
-    if (existingInvoice) {
-      setCustomer(existingInvoice.customer);
-      setItems(existingInvoice.items);
-      setNotes(existingInvoice.notes);
-      setLoaded(true);
-      return;
-    }
     getDraft(draftId).then((d) => {
       if (d) {
         setCustomer(d.customer); setItems(d.items); setNotes(d.notes); setStatus(d.status);
@@ -69,7 +68,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
       }
       setLoaded(true);
     }).catch((e) => setError(e.message));
-  }, [draftId, existingInvoice]);
+  }, [draftId]);
 
   // Autosave while typing; editing a parked invoice makes it an active draft again
   useEffect(() => {
@@ -77,6 +76,23 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
     timer.current = window.setTimeout(() => persist(false), AUTOSAVE_MS);
     return () => window.clearTimeout(timer.current);
   }, [customer, items, notes, validUntil, loaded]);
+
+  // Dues for the chosen customer, refreshed when the customer changes
+  useEffect(() => {
+    if (!customer) { setDues(null); return; }
+    let stale = false;
+    listInvoices().then((all) => {
+      if (stale) return;
+      const theirs = all.filter((i) => i.customer.id === customer.id && i.status === 'issued');
+      const open = theirs.filter((i) => outstandingOf(i) >= 0.01);
+      setDues({
+        outstanding: open.reduce((sum, i) => sum + outstandingOf(i), 0),
+        overdue: open.filter((i) => i.dueDate < todayISO()).length,
+        last: theirs[0] ?? null, // newest first
+      });
+    }).catch(() => setDues(null));
+    return () => { stale = true; };
+  }, [customer?.id]);
 
   // Closing the window saves this document first
   useEffect(() => {
@@ -146,10 +162,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
     return customer;
   };
 
-  const handleIssue = async () => {
+  const handleIssue = async (print: boolean) => {
     const cust = validate();
-    if (!cust) return;
-    if (!window.confirm(`Issue this invoice to ${cust.businessName} for ${formatCurrencyINR(totals.total)}? It gets the next invoice number and can no longer be edited.`)) return;
+    if (!cust || busy) return;
+    if (!window.confirm(`Issue this invoice to ${cust.businessName} for ${formatCurrencyINR(totals.total)}? It gets the next invoice number and cannot be edited afterwards; corrections are made with credit or debit notes.`)) return;
     setBusy(true);
     try {
       window.clearTimeout(timer.current);
@@ -161,33 +177,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
         issueDate, dueDate: addDaysISO(issueDate, cust.paymentTermsDays),
       });
       closed.current = true;
+      if (print) await printDocument(invoiceDocument(invoice), company).catch((e) => window.alert(`Issued as ${invoice.invoiceNumber}, but printing failed: ${e.message}. Print it from the Issued list.`));
       onClose(invoice.invoiceNumber);
     } catch (e: any) {
       setError(/UNIQUE|PRIMARY/i.test(e.message) ? 'This invoice was already issued. Close the editor and check the Issued list.' : e.message);
-      setBusy(false);
-    }
-  };
-
-  const handleSave = async () => {
-    const cust = validate();
-    if (!cust || !existingInvoice) return;
-    if (!window.confirm(`Save changes to invoice ${existingInvoice.invoiceNumber} for ${formatCurrencyINR(totals.total)}?`)) return;
-    setBusy(true);
-    try {
-      window.clearTimeout(timer.current);
-      timer.current = undefined;
-      await updateInvoice({
-        id: existingInvoice.id,
-        customer: cust,
-        items,
-        totals,
-        notes,
-        dueDate: addDaysISO(existingInvoice.issueDate, cust.paymentTermsDays),
-      });
-      closed.current = true;
-      onClose(existingInvoice.invoiceNumber);
-    } catch (e: any) {
-      setError(e.message);
       setBusy(false);
     }
   };
@@ -211,10 +204,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
   const handleQuotationPdf = () => output(savePdf);
 
   useMenuAction({
-    'save': () => {
-      if (isEditingIssued) handleSave();
-      else persist(false).then(() => setNotice(`Saved ${draftId}.`));
-    },
+    'save': () => { persist(false).then(() => setNotice(`Saved ${draftId}.`)); },
     'save-copy': () => {
       const copyId = newDraftId(kind);
       const d = latest.current;
@@ -226,6 +216,29 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
     'print': () => { output(printDocument); },
   });
 
+  // Keyboard first: Ctrl+Enter issues and prints, F9 parks
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (kind !== 'invoice') return;
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleIssue(true); }
+      else if (e.key === 'F9') { e.preventDefault(); close(true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  // Enter moves to the next field of the item table; after the last field it returns to the product search for the next line
+  const onItemsKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement;
+    if (e.key !== 'Enter' || e.ctrlKey || target.tagName !== 'INPUT' || !target.closest('tbody')) return;
+    e.preventDefault();
+    const fields = [...e.currentTarget.querySelectorAll<HTMLElement>('tbody input, tbody select')];
+    const next = fields[fields.indexOf(target) + 1];
+    (next ?? itemsSection.current?.querySelector<HTMLElement>('input[role="combobox"], input[type="search"]'))?.focus();
+  };
+
+  const customerDues = dues && dues.outstanding >= 0.01;
+
   return (
     <div className="page">
       <div className="flex items-center justify-between gap-4">
@@ -234,30 +247,26 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
             <ArrowLeft className="h-4 w-4" aria-hidden />
             Back
           </button>
-          <span className="badge tabular-nums">{existingInvoice ? existingInvoice.invoiceNumber : draftId}</span>
-          <span className="text-xs text-ink-2 truncate">
-            {isEditingIssued
-              ? 'Editing issued invoice. Changes update the invoice record.'
-              : kind === 'invoice'
-                ? 'Draft. Saved automatically. No invoice number is used until you issue it.'
-                : 'Quotation. Saved automatically.'}
+          <span className="badge tabular-nums">{draftId}</span>
+          <span className="text-xs text-ink-2 truncate" aria-live="polite">
+            {kind === 'invoice' ? 'Draft' : 'Quotation'} · {savedAt ? `saved ${clock(savedAt)}` : 'saved automatically'}
+            {kind === 'invoice' && ' · no invoice number is used until you issue it'}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {isEditingIssued ? (
-            <button onClick={handleSave} disabled={busy} className="btn btn-primary">
-              <CheckCircle2 className="h-4 w-4" aria-hidden />
-              {busy ? 'Saving…' : 'Save Changes'}
-            </button>
-          ) : kind === 'invoice' ? (
+          {kind === 'invoice' ? (
             <>
-              <button onClick={() => close(true)} className="btn">
+              <button onClick={() => close(true)} className="btn" title="Park (F9)">
                 <PauseCircle className="h-4 w-4" aria-hidden />
-                Park
+                Park <kbd className="kbd">F9</kbd>
               </button>
-              <button onClick={handleIssue} disabled={busy} className="btn btn-primary">
+              <button onClick={() => handleIssue(false)} disabled={busy} className="btn">
                 <CheckCircle2 className="h-4 w-4" aria-hidden />
-                {busy ? 'Issuing…' : 'Issue Invoice'}
+                Issue Only
+              </button>
+              <button onClick={() => handleIssue(true)} disabled={busy} className="btn btn-primary" title="Issue and print (Ctrl+Enter)">
+                <Printer className="h-4 w-4" aria-hidden />
+                {busy ? 'Issuing…' : 'Issue & Print'} <kbd className="kbd">Ctrl ↵</kbd>
               </button>
             </>
           ) : (
@@ -283,6 +292,15 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
                 {customer.gstin || 'Unregistered'} · Place of supply: {customer.stateName} ({customer.stateCode}) ·{' '}
                 {customer.paymentTermsDays === 0 ? 'Immediate payment' : `${customer.paymentTermsDays} days credit`}
               </div>
+              {dues && (
+                <div className={`mt-1 flex items-center gap-1.5 text-xs ${customerDues && dues.overdue > 0 ? 'text-warn font-medium' : 'text-ink-2'}`} aria-live="polite">
+                  {customerDues && dues.overdue > 0 && <AlertTriangle className="h-3.5 w-3.5" aria-hidden />}
+                  {customerDues
+                    ? `Due ${formatCurrencyINR(dues.outstanding)}${dues.overdue > 0 ? ` · ${dues.overdue} overdue` : ''}`
+                    : 'Nothing outstanding'}
+                  {dues.last && ` · last invoice ${dues.last.invoiceNumber} on ${formatDate(dues.last.issueDate)}`}
+                </div>
+              )}
             </div>
             <button onClick={() => setCustomer(null)} className="btn">Change</button>
           </div>
@@ -310,7 +328,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
       </section>
 
       {/* Line items */}
-      <section className="card" aria-label="Items">
+      <section className="card" aria-label="Items" ref={itemsSection} onKeyDown={onItemsKeyDown}>
         <div className="p-4 flex items-start gap-2">
           <div className="flex-1 min-w-0">
           <SearchBox<Product>
@@ -380,9 +398,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose, existin
                 <td>
                   <input aria-label={`Rate of item ${i + 1}`} type="number" min="0" step="0.01" value={l.rate} onChange={(e) => setLine(i, { rate: num(e.target.value) })} className="field num" />
                   {l.productId && l.rate !== l.catalogRate && (
-                    <button onClick={() => saveToCatalogue(i)} className="mt-1 block ml-auto text-[11px] text-accent hover:underline">
-                      Save to catalogue
-                    </button>
+                    <div className="mt-1 text-right text-[11px] text-ink-2">
+                      Catalogue {formatCurrencyINR(l.catalogRate ?? 0)}{' · '}
+                      <button onClick={() => saveToCatalogue(i)} className="text-accent hover:underline">make default</button>
+                    </div>
                   )}
                 </td>
                 <td>

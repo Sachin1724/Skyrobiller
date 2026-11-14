@@ -13,7 +13,7 @@ export const CreditNoteModal: React.FC<{ invoice: Invoice; onClose: (saved: bool
   const items = invoice.items.map((l, i) => ({ ...l, qty: qty[i] })).filter((l) => l.qty > 0);
   // Same tax treatment (CGST+SGST or IGST) as the original invoice
   const totals = computeInvoice(items, 'a', invoice.totals.intraState ? 'a' : 'b');
-  const available = Math.round((invoice.total - invoice.credited) * 100) / 100;
+  const available = Math.round((invoice.total + invoice.debited - invoice.credited) * 100) / 100;
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

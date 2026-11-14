@@ -108,7 +108,7 @@ export const DashboardView: React.FC = () => {
                   >
                     <td className="font-medium tabular-nums whitespace-nowrap text-accent hover:underline">{inv.invoiceNumber}</td>
                     <td className="whitespace-nowrap">{formatDate(inv.issueDate)}</td>
-                    <td className="max-w-xs"><div className="truncate">{inv.customer.businessName}</div></td>
+                    <td className="max-w-xs"><div className="truncate">{inv.customer?.businessName ?? 'Unknown Customer'}</div></td>
                     <td className="num font-medium">{formatCurrencyINR(inv.total)}</td>
                     <td><span className={status.badge}>{status.label}</span></td>
                   </tr>

@@ -3,7 +3,7 @@
 // plus its accent presets and density setting.
 // Type-only static imports here: scripts/gst.check.ts loads this file directly under Node.
 import type { InvoiceLine, InvoiceTotals } from './gst';
-import type { Customer, Invoice, CreditNote } from './db';
+import type { Customer, Invoice, CreditNote, DebitNote } from './db';
 import type { Company } from '../store/useSystemStore';
 
 export const TEMPLATES = {
@@ -62,7 +62,7 @@ const date = (iso: string) =>
   iso ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(iso)) : '';
 
 export interface PrintableDocument {
-  title: 'Tax Invoice' | 'Quotation' | 'Credit Note';
+  title: 'Tax Invoice' | 'Quotation' | 'Credit Note' | 'Debit Note';
   number: string;
   date: string;
   secondDateLabel: 'Due Date' | 'Valid Until';
@@ -404,6 +404,20 @@ export const creditNoteDocument = (cn: CreditNote): PrintableDocument => ({
   items: cn.items,
   totals: cn.totals,
   notes: `Reason: ${cn.reason}`,
+});
+
+export const debitNoteDocument = (dn: DebitNote): PrintableDocument => ({
+  title: 'Debit Note',
+  number: dn.debitNumber,
+  date: dn.issueDate,
+  secondDateLabel: 'Due Date',
+  secondDate: '',
+  reference: `Against invoice ${dn.invoiceNumber} dated ${date(dn.invoiceDate)}`,
+  company: dn.company,
+  customer: dn.customer,
+  items: dn.items,
+  totals: dn.totals,
+  notes: `Reason: ${dn.reason}`,
 });
 
 // `settings` is the current company profile: it decides template, colours, logo, signature, copies and the UPI id for the QR.

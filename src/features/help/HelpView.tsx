@@ -21,15 +21,15 @@ const TOPICS: { title: string; steps: string[] }[] = [
       'Search and pick products. Change quantity, rate or discount on any line. A changed rate applies to this invoice only, unless you choose Save to catalogue.',
       'For something not in the catalogue, use Custom Item, type its name, HSN code and GST rate. Save to Catalogue on that row adds it for next time.',
       'Everything is saved automatically as a draft. Park puts the draft aside; resume it from Parked (Ctrl+Shift+P) or the Drafts list.',
-      'Issue Invoice gives it the next invoice number. After that it cannot be edited or deleted.',
+      'Issue & Print (Ctrl+Enter) gives it the next invoice number and prints it. After that it cannot be edited or deleted. Press F9 to park a bill instead; Enter moves to the next field.',
     ],
   },
   {
     title: 'After an Invoice Is Issued',
     steps: [
-      'In Invoices > Issued, the icons on each row are: View, Save PDF, Record Payment, Issue Credit Note, Duplicate as New Draft, Cancel.',
+      'In Invoices > Issued, the icons on each row are: View, Save PDF, Record Payment, Issue Credit Note, Issue Debit Note, Duplicate as New Draft, Cancel.',
       'View opens the document. From there you can print it or save it as a PDF.',
-      'To correct or reverse an invoice, issue a credit note for the returned quantity, or cancel it if nothing has been paid or credited. A cancelled invoice keeps its number.',
+      'An issued invoice is never edited. To lower it (returned goods, a price cut) issue a credit note; to raise it (freight, a price correction) issue a debit note, using only the extra amount per unit. Each has its own number series. You can also cancel an invoice if nothing has been paid, credited or debited. A cancelled invoice keeps its number.',
     ],
   },
   {
@@ -53,7 +53,7 @@ const TOPICS: { title: string; steps: string[] }[] = [
     steps: [
       'Reports opens on the Invoice Register for the current month: one row per bill with tax split, amount received and status.',
       'Pick a month, a date range, or This Financial Year. Use the Payment filter for Paid or Unpaid only.',
-      'The GST Filing group has sheets laid out like the GSTR-1 offline tool: B2B, B2C, HSN Summary and Credit Notes. Ask your accountant to confirm them before filing.',
+      'The GST Filing group has sheets laid out like the GSTR-1 offline tool: B2B, B2C Large, B2C Small, HSN Summary and Credit and Debit Notes. GSTR-1 (JSON) builds one file for the offline tool Import for the month you picked. Ask your accountant to confirm them before filing. Reports > Audit Log lists every change made to your data.',
       'This Sheet (CSV) exports what you see. All Sheets (Excel) saves every report as a tab in one Excel file.',
     ],
   },

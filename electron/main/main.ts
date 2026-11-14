@@ -5,7 +5,9 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { initDatabase, queryDb, executeDb, batchDb, saveDatabase, backupDatabase, restoreDatabase } from './db';
+import { initDatabase, queryDb, executeDb, batchDb, saveDatabase, backupDatabase, restoreDatabase, previewBackup } from './db';
+import { getBackupStatus, runAutoBackup, writeBackupSettings, type BackupSettings } from './backup';
+import { logError, logFilePath, installCrashLogging } from './log';
 import { buildMenu } from './menu';
 import type { DeviceInfo } from '../../src/types/electron';
 
@@ -141,12 +143,46 @@ ipcMain.handle('db:backup', async () => {
   return { ...backupDatabase(filePath), filePath };
 });
 
-ipcMain.handle('db:restore', async () => {
-  const { filePaths } = await dialog.showOpenDialog({ title: 'Restore Backup', properties: ['openFile'], filters: backupFilters });
+// Restore is two steps so the user sees what they are about to load: pick a file (returns a preview), then apply it
+ipcMain.handle('db:restorePick', async (_event, startIn?: string) => {
+  const { filePaths } = await dialog.showOpenDialog({
+    title: 'Restore Backup', properties: ['openFile'], filters: backupFilters,
+    defaultPath: startIn || getBackupStatus().effectiveFolder,
+  });
   if (!filePaths[0]) return { success: false, error: 'Cancelled' };
-  const result = await restoreDatabase(filePaths[0]);
+  return { ...(await previewBackup(filePaths[0])), filePath: filePaths[0] };
+});
+
+ipcMain.handle('db:restoreApply', async (_event, filePath: string) => {
+  // The current data is kept beside the database as .before-restore, so a wrong restore can be undone.
+  // Today's automatic backup is left alone: the user may be restoring from that very file.
+  const result = await restoreDatabase(filePath);
   if (result.success) win?.reload(); // every screen re-reads from the restored database
   return result;
+});
+
+ipcMain.handle('backup:status', () => getBackupStatus());
+ipcMain.handle('backup:set', (_event, change: Partial<BackupSettings>) => {
+  writeBackupSettings(change);
+  return runAutoBackup();
+});
+ipcMain.handle('backup:runNow', () => runAutoBackup(true));
+ipcMain.handle('backup:chooseFolder', async () => {
+  const { filePaths } = await dialog.showOpenDialog({ title: 'Choose Backup Folder', properties: ['openDirectory', 'createDirectory'] });
+  if (!filePaths[0]) return getBackupStatus();
+  writeBackupSettings({ folder: filePaths[0] });
+  return runAutoBackup();
+});
+
+ipcMain.handle('log:error', (_event, where: string, message: string) => logError(`renderer ${where}`, message));
+ipcMain.handle('log:export', async () => {
+  const { filePath } = await dialog.showSaveDialog({
+    title: 'Export Logs', defaultPath: `skyro-logs-${new Date().toISOString().slice(0, 10)}.txt`, filters: [{ name: 'Text', extensions: ['txt'] }],
+  });
+  if (!filePath) return { success: false, error: 'Cancelled' };
+  const info = `Skyro Biller ${app.getVersion()} · Electron ${process.versions.electron} · ${os.platform()} ${os.release()} · ${os.hostname()}\n\n`;
+  fs.writeFileSync(filePath, info + (fs.existsSync(logFilePath()) ? fs.readFileSync(logFilePath(), 'utf8') : 'No errors logged.\n'));
+  return { success: true, filePath };
 });
 
 ipcMain.handle('db:save', () => {
@@ -243,7 +279,10 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     try {
+      installCrashLogging();
       await initDatabase();
+      runAutoBackup();
+      setInterval(() => runAutoBackup(), 60 * 60 * 1000); // catches the day rolling over while the app stays open
       installMenu();
       await createWindow();
     } catch (err: any) {
@@ -260,6 +299,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('window-all-closed', () => {
     saveDatabase();
+    runAutoBackup(true); // end of day: today's backup holds the latest data
     if (process.platform !== 'darwin') {
       app.quit();
     }

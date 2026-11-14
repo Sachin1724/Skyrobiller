@@ -1,19 +1,30 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Play, Trash2, FileDown, IndianRupee, Ban, Eye, Copy, Undo2, Printer, Pencil } from 'lucide-react';
-import { formatCurrencyINR, formatDate } from '../../lib/utils';
+import { Search, Play, Trash2, FileDown, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
+import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import {
-  listDrafts, listInvoices, listCreditNotes, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf,
-  type Draft, type Invoice, type CreditNote,
+  listDrafts, listInvoices, listCreditNotes, listDebitNotes, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf,
+  type Draft, type Invoice, type CreditNote, type DebitNote,
 } from '../../lib/db';
-import { invoiceDocument, creditNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
+import { invoiceDocument, creditNoteDocument, debitNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
 import { Modal } from '../../components/Modal';
 import { InvoiceEditor } from './InvoiceEditor';
 import { CreditNoteModal } from './CreditNoteModal';
+import { DebitNoteModal } from './DebitNoteModal';
 import { PaymentModal } from '../payments/PaymentModal';
 
-type Tab = 'issued' | 'drafts' | 'credits';
+type Tab = 'issued' | 'drafts' | 'credits' | 'debits';
+
+// Quick filters on the issued list; each one is a plain rule on the invoice
+const FILTERS = {
+  all: { label: 'All', test: (_i: Invoice) => true },
+  unpaid: { label: 'Unpaid', test: (i: Invoice) => outstandingOf(i) >= 0.01 },
+  overdue: { label: 'Overdue', test: (i: Invoice) => outstandingOf(i) >= 0.01 && i.dueDate < todayISO() },
+  paid: { label: 'Paid', test: (i: Invoice) => i.status === 'issued' && outstandingOf(i) < 0.01 },
+  cancelled: { label: 'Cancelled', test: (i: Invoice) => i.status === 'cancelled' },
+};
+type FilterId = keyof typeof FILTERS;
 
 export const InvoicesView: React.FC = () => {
   const { activeInvoiceDraftId, setActiveInvoiceDraftId, isParkedDrawerOpen } = useNavStore();
@@ -23,18 +34,20 @@ export const InvoicesView: React.FC = () => {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [credits, setCredits] = useState<CreditNote[]>([]);
+  const [debits, setDebits] = useState<DebitNote[]>([]);
+  const [filter, setFilter] = useState<FilterId>('all');
   const [paying, setPaying] = useState<Invoice | null>(null);
   const [crediting, setCrediting] = useState<Invoice | null>(null);
-  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [debiting, setDebiting] = useState<Invoice | null>(null);
   const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice?: Invoice } | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
-  const isEditorOpen = activeInvoiceDraftId !== null || editingInvoice !== null;
+  const isEditorOpen = activeInvoiceDraftId !== null;
 
   const reload = () =>
-    Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes()])
-      .then(([d, i, c]) => { setDrafts(d); setInvoices(i); setCredits(c); })
+    Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes(), listDebitNotes()])
+      .then(([d, i, c, dn]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); })
       .catch((e) => setError(e.message));
   // Refresh when the editor closes and when the parked list closes (it can delete drafts)
   useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen, isParkedDrawerOpen]);
@@ -44,22 +57,6 @@ export const InvoicesView: React.FC = () => {
     'save-pdf': () => { if (!preview) return false; savePdf(preview.doc, company).catch((e) => setError(e.message)); },
     'print': () => { if (!preview) return false; printDocument(preview.doc, company).catch((e) => setError(e.message)); },
   });
-
-  if (editingInvoice !== null) {
-    return (
-      <InvoiceEditor
-        key={editingInvoice.id}
-        draftId={editingInvoice.id}
-        kind="invoice"
-        existingInvoice={editingInvoice}
-        onClose={(savedNum) => {
-          setNotice(savedNum ? `Saved changes to invoice ${savedNum}.` : '');
-          setEditingInvoice(null);
-          reload();
-        }}
-      />
-    );
-  }
 
   if (activeInvoiceDraftId !== null) {
     return (
@@ -103,9 +100,10 @@ export const InvoicesView: React.FC = () => {
 
   const term = searchTerm.toLowerCase();
   const matches = (...values: string[]) => values.some((v) => v.toLowerCase().includes(term));
-  const shownInvoices = invoices.filter((i) => matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin));
+  const shownInvoices = invoices.filter((i) => FILTERS[filter].test(i) && matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin));
   const shownDrafts = drafts.filter((d) => matches(d.draftId, d.customer?.businessName ?? '', d.customer?.gstin ?? ''));
   const shownCredits = credits.filter((c) => matches(c.creditNumber, c.invoiceNumber, c.customer.businessName));
+  const shownDebits = debits.filter((d) => matches(d.debitNumber, d.invoiceNumber, d.customer.businessName));
 
   return (
     <div className="page">
@@ -114,6 +112,7 @@ export const InvoicesView: React.FC = () => {
           <button aria-pressed={tab === 'issued'} onClick={() => setTab('issued')}>Issued</button>
           <button aria-pressed={tab === 'drafts'} onClick={() => setTab('drafts')}>Drafts ({drafts.length})</button>
           <button aria-pressed={tab === 'credits'} onClick={() => setTab('credits')}>Credit Notes ({credits.length})</button>
+          <button aria-pressed={tab === 'debits'} onClick={() => setTab('debits')}>Debit Notes ({debits.length})</button>
         </div>
         <div className="relative w-80">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-ink-3 pointer-events-none" aria-hidden />
@@ -129,6 +128,17 @@ export const InvoicesView: React.FC = () => {
           />
         </div>
       </div>
+
+      {tab === 'issued' && (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter invoices">
+          {(Object.keys(FILTERS) as FilterId[]).map((id) => (
+            <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)} className="chip">
+              {FILTERS[id].label}
+              <span className="tabular-nums opacity-70">{invoices.filter(FILTERS[id].test).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <p aria-live="polite" className="text-success font-medium empty:hidden">{notice}</p>
       {error && <p role="alert" className="error">{error}</p>}
@@ -149,7 +159,7 @@ export const InvoicesView: React.FC = () => {
             </thead>
             <tbody>
               {shownInvoices.length === 0 && (
-                <tr><td colSpan={7} className="empty">{searchTerm ? 'No invoices match this search.' : 'No invoices issued yet. Use New Invoice to create one.'}</td></tr>
+                <tr><td colSpan={7} className="empty">{searchTerm || filter !== 'all' ? 'No invoices match this search and filter.' : 'No invoices issued yet. Use New Invoice to create one.'}</td></tr>
               )}
               {shownInvoices.map((inv) => {
                 const status = paymentStatusOf(inv);
@@ -170,9 +180,6 @@ export const InvoicesView: React.FC = () => {
                       <button onClick={() => openPreview(invoiceDocument(inv), inv)} className="btn btn-icon" aria-label={`View ${n}`} title="View">
                         <Eye className="h-4 w-4" aria-hidden />
                       </button>
-                      <button onClick={() => setEditingInvoice(inv)} disabled={inv.status === 'cancelled'} className="btn btn-icon" aria-label={`Edit ${n}`} title={inv.status === 'cancelled' ? 'Cancelled invoices cannot be edited' : 'Edit invoice'}>
-                        <Pencil className="h-4 w-4" aria-hidden />
-                      </button>
                       <button onClick={() => savePdf(invoiceDocument(inv), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${n}`} title="Save PDF">
                         <FileDown className="h-4 w-4" aria-hidden />
                       </button>
@@ -182,10 +189,13 @@ export const InvoicesView: React.FC = () => {
                       <button onClick={() => setCrediting(inv)} disabled={inv.status === 'cancelled' || inv.credited >= inv.total - 0.005} className="btn btn-icon" aria-label={`Issue credit note for ${n}`} title="Issue credit note">
                         <Undo2 className="h-4 w-4" aria-hidden />
                       </button>
+                      <button onClick={() => setDebiting(inv)} disabled={inv.status === 'cancelled'} className="btn btn-icon" aria-label={`Issue debit note for ${n}`} title="Issue debit note">
+                        <FilePlus className="h-4 w-4" aria-hidden />
+                      </button>
                       <button onClick={() => handleDuplicate(inv)} className="btn btn-icon" aria-label={`Duplicate ${n} as a new draft`} title="Duplicate as new draft">
                         <Copy className="h-4 w-4" aria-hidden />
                       </button>
-                      <button onClick={() => handleCancel(inv)} disabled={inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0} className="btn btn-icon btn-danger" aria-label={`Cancel ${n}`} title={inv.paid > 0 || inv.credited > 0 ? 'Invoices with payments or credit notes cannot be cancelled' : 'Cancel invoice'}>
+                      <button onClick={() => handleCancel(inv)} disabled={inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0 || inv.debited > 0} className="btn btn-icon btn-danger" aria-label={`Cancel ${n}`} title={inv.paid > 0 || inv.credited > 0 || inv.debited > 0 ? 'Invoices with payments, credit notes or debit notes cannot be cancelled' : 'Cancel invoice'}>
                         <Ban className="h-4 w-4" aria-hidden />
                       </button>
                     </td>
@@ -274,6 +284,45 @@ export const InvoicesView: React.FC = () => {
             </tbody>
           </table>
         )}
+
+        {tab === 'debits' && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Debit Note No.</th>
+                <th>Date</th>
+                <th>Against Invoice</th>
+                <th>Customer</th>
+                <th>Reason</th>
+                <th className="num">Total</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shownDebits.length === 0 && (
+                <tr><td colSpan={7} className="empty">{searchTerm ? 'No debit notes match this search.' : 'No debit notes. Issue one from an invoice in the Issued list.'}</td></tr>
+              )}
+              {shownDebits.map((d) => (
+                <tr key={d.id}>
+                  <td className="font-medium tabular-nums whitespace-nowrap">{d.debitNumber}</td>
+                  <td className="whitespace-nowrap">{formatDate(d.issueDate)}</td>
+                  <td className="tabular-nums whitespace-nowrap">{d.invoiceNumber}</td>
+                  <td className="max-w-[14rem]"><div className="truncate">{d.customer.businessName}</div></td>
+                  <td className="max-w-[14rem]"><div className="truncate">{d.reason}</div></td>
+                  <td className="num font-medium">{formatCurrencyINR(d.total)}</td>
+                  <td className="num">
+                    <button onClick={() => openPreview(debitNoteDocument(d))} className="btn btn-icon" aria-label={`View ${d.debitNumber}`} title="View">
+                      <Eye className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button onClick={() => savePdf(debitNoteDocument(d), company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${d.debitNumber}`} title="Save PDF">
+                      <FileDown className="h-4 w-4" aria-hidden />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {paying && <PaymentModal invoice={paying} onClose={(saved) => { setPaying(null); if (saved) reload(); }} />}
@@ -283,23 +332,16 @@ export const InvoicesView: React.FC = () => {
           onClose={(saved) => { setCrediting(null); if (saved) { setTab('credits'); reload(); } }}
         />
       )}
+      {debiting && (
+        <DebitNoteModal
+          invoice={debiting}
+          onClose={(saved) => { setDebiting(null); if (saved) { setTab('debits'); reload(); } }}
+        />
+      )}
       {preview && (
         <Modal wide title={`${preview.doc.title} · ${preview.doc.number}`} onClose={() => setPreview(null)}>
           <iframe title={`${preview.doc.title} ${preview.doc.number}`} sandbox="" srcDoc={preview.html} className="w-full h-[68vh] rounded-lg border border-line bg-white" />
           <div className="flex justify-end pt-4">
-            {preview.invoice && preview.invoice.status !== 'cancelled' && (
-              <button
-                onClick={() => {
-                  const inv = preview.invoice!;
-                  setPreview(null);
-                  setEditingInvoice(inv);
-                }}
-                className="btn mr-2"
-              >
-                <Pencil className="h-4 w-4" aria-hidden />
-                Edit Invoice
-              </button>
-            )}
             <button onClick={() => printDocument(preview.doc, company).catch(fail)} className="btn mr-2">
               <Printer className="h-4 w-4" aria-hidden />
               Print

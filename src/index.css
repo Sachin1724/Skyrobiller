@@ -150,6 +150,23 @@
   .badge-danger { @apply bg-danger/10 text-danger; }
   .badge-accent { @apply bg-accent/10 text-accent; }
 
+  /* Keyboard hint printed inside a button */
+  .kbd {
+    @apply ml-1 px-1 rounded text-[10px] font-medium bg-ink/10 text-ink-2;
+  }
+  .btn-primary .kbd {
+    @apply bg-white/20 text-white;
+  }
+
+  /* Filter chip: toggles like the segmented control, but stands alone */
+  .chip {
+    @apply inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-xs font-medium text-ink-2 border border-line bg-surface hover:text-ink;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  .chip[aria-pressed='true'] {
+    @apply bg-ink text-bg border-ink;
+  }
+
   /* Segmented control */
   .segmented {
     @apply inline-flex p-0.5 rounded-lg bg-ink/5;

@@ -62,15 +62,17 @@ export interface Invoice {
   status: 'issued' | 'cancelled';
   paid: number;
   credited: number; // total of credit notes against this invoice
+  debited: number; // total of debit notes against this invoice
 }
 
-export interface CreditNote {
+// Credit and debit notes share a shape; only the number and the direction differ
+export interface Note {
   id: string;
-  creditNumber: string;
   issueDate: string;
   invoiceId: string;
   invoiceNumber: string;
   invoiceDate: string;
+  invoiceTotal: number; // value of the original invoice, for GSTR-1 (B2C Large is decided on it)
   customer: Customer;
   company: Company;
   items: InvoiceLine[];
@@ -78,6 +80,8 @@ export interface CreditNote {
   total: number;
   reason: string;
 }
+export interface CreditNote extends Note { creditNumber: string }
+export interface DebitNote extends Note { debitNumber: string }
 
 export interface Payment {
   id: string;
@@ -284,6 +288,7 @@ interface InvoiceRow {
   status: Invoice['status'];
   paid: number;
   credited: number;
+  debited: number;
 }
 
 const toInvoice = (r: InvoiceRow): Invoice => ({
@@ -301,11 +306,13 @@ const toInvoice = (r: InvoiceRow): Invoice => ({
   status: r.status,
   paid: r.paid,
   credited: r.credited,
+  debited: r.debited,
 });
 
 const INVOICE_SELECT = `SELECT i.*,
     coalesce((SELECT sum(amount) FROM local_payments p WHERE p.invoice_id = i.id), 0) AS paid,
-    coalesce((SELECT sum(total) FROM local_credit_notes c WHERE c.invoice_id = i.id), 0) AS credited
+    coalesce((SELECT sum(total) FROM local_credit_notes c WHERE c.invoice_id = i.id), 0) AS credited,
+    coalesce((SELECT sum(total) FROM local_debit_notes d WHERE d.invoice_id = i.id), 0) AS debited
   FROM local_invoices i`;
 
 export async function listInvoices(range?: { from: string; to: string }): Promise<Invoice[]> {
@@ -346,72 +353,69 @@ export async function issueInvoice(input: {
   return toInvoice(rows[0]);
 }
 
-// Updates an issued invoice's customer, items, totals, notes or due date while preserving its permanent invoice number and sequence.
-export async function updateInvoice(input: {
-  id: string;
-  customer: Customer;
-  items: InvoiceLine[];
-  totals: InvoiceTotals;
-  notes: string;
-  dueDate: string;
-}): Promise<void> {
-  const [row] = await query<{ settled: number }>(
-    `SELECT coalesce((SELECT sum(amount) FROM local_payments WHERE invoice_id = ?1), 0)
-          + coalesce((SELECT sum(total) FROM local_credit_notes WHERE invoice_id = ?1), 0) AS settled`,
-    [input.id],
-  );
-  if (input.totals.total < row.settled - 0.005) {
-    throw new Error(`New total is below the ${row.settled.toFixed(2)} already paid or credited`);
-  }
-  return execute(
-    `UPDATE local_invoices
-     SET customer_id = ?, customer_name = ?, customer_json = ?, items_json = ?, totals_json = ?, total = ?, notes = ?, due_date = ?
-     WHERE id = ? AND status = 'issued'`,
-    [
-      input.customer.id,
-      input.customer.businessName,
-      JSON.stringify(input.customer),
-      JSON.stringify(input.items),
-      JSON.stringify(input.totals),
-      input.totals.total,
-      input.notes,
-      input.dueDate,
-      input.id,
-    ],
-  );
-}
-
 // The number stays used and the record stays in place; only the status changes.
 export function cancelInvoice(id: string): Promise<void> {
   return execute(`UPDATE local_invoices SET status = 'cancelled' WHERE id = ?`, [id]);
 }
 
-// ---------- Credit notes ----------
+// ---------- Credit and debit notes ----------
 
-// Issues a credit note against an invoice with the next number of the CN series for its financial year.
-// ponytail: only the total is capped (by trigger) at the invoice value; returned quantity per line across several notes is not tracked
-export function issueCreditNote(input: { invoiceId: string; items: InvoiceLine[]; totals: InvoiceTotals; reason: string; issueDate: string }): Promise<void> {
+// A note gets the next number of its own series (CN or DN) for its financial year.
+// ponytail: only the total is capped (by trigger); returned quantity per line across several notes is not tracked
+function issueNote(table: 'local_credit_notes' | 'local_debit_notes', prefix: 'CN' | 'DN', input: { invoiceId: string; items: InvoiceLine[]; totals: InvoiceTotals; reason: string; issueDate: string }): Promise<void> {
   const fy = financialYearOf(input.issueDate);
+  const numberColumn = table === 'local_credit_notes' ? 'credit_number' : 'debit_number';
   return execute(
-    `INSERT INTO local_credit_notes (id, credit_number, financial_year, seq, issue_date, invoice_id, items_json, totals_json, total, reason, created_at)
-     SELECT ?, 'CN/' || ? || '/' || printf('%04d', coalesce(max(seq), 0) + 1), ?, coalesce(max(seq), 0) + 1, ?, ?, ?, ?, ?, ?, ?
-     FROM local_credit_notes WHERE financial_year = ?`,
-    [crypto.randomUUID(), fy, fy, input.issueDate, input.invoiceId, JSON.stringify(input.items), JSON.stringify(input.totals),
+    `INSERT INTO ${table} (id, ${numberColumn}, financial_year, seq, issue_date, invoice_id, items_json, totals_json, total, reason, created_at)
+     SELECT ?, ? || '/' || ? || '/' || printf('%04d', coalesce(max(seq), 0) + 1), ?, coalesce(max(seq), 0) + 1, ?, ?, ?, ?, ?, ?, ?
+     FROM ${table} WHERE financial_year = ?`,
+    [crypto.randomUUID(), prefix, fy, fy, input.issueDate, input.invoiceId, JSON.stringify(input.items), JSON.stringify(input.totals),
       input.totals.total, input.reason, Date.now(), fy],
   );
 }
 
-export async function listCreditNotes(range?: { from: string; to: string }): Promise<CreditNote[]> {
+export const issueCreditNote = (input: Parameters<typeof issueNote>[2]) => issueNote('local_credit_notes', 'CN', input);
+export const issueDebitNote = (input: Parameters<typeof issueNote>[2]) => issueNote('local_debit_notes', 'DN', input);
+
+async function listNotes(table: 'local_credit_notes' | 'local_debit_notes', range?: { from: string; to: string }) {
   const rows = await query<any>(
-    `SELECT c.*, i.invoice_number, i.issue_date AS invoice_date, i.customer_json, i.company_json
-     FROM local_credit_notes c JOIN local_invoices i ON i.id = c.invoice_id
-     ${range ? 'WHERE c.issue_date BETWEEN ? AND ?' : ''} ORDER BY c.financial_year DESC, c.seq DESC`,
+    `SELECT n.*, i.invoice_number, i.issue_date AS invoice_date, i.total AS invoice_total, i.customer_json, i.company_json
+     FROM ${table} n JOIN local_invoices i ON i.id = n.invoice_id
+     ${range ? 'WHERE n.issue_date BETWEEN ? AND ?' : ''} ORDER BY n.financial_year DESC, n.seq DESC`,
     range ? [range.from, range.to] : [],
   );
-  return rows.map((r) => ({
-    id: r.id, creditNumber: r.credit_number, issueDate: r.issue_date, invoiceId: r.invoice_id, invoiceNumber: r.invoice_number,
-    invoiceDate: r.invoice_date, customer: JSON.parse(r.customer_json), company: JSON.parse(r.company_json),
+  return rows.map((r): Note & { number: string } => ({
+    id: r.id, number: r.credit_number ?? r.debit_number, issueDate: r.issue_date, invoiceId: r.invoice_id, invoiceNumber: r.invoice_number,
+    invoiceDate: r.invoice_date, invoiceTotal: r.invoice_total, customer: JSON.parse(r.customer_json), company: JSON.parse(r.company_json),
     items: JSON.parse(r.items_json), totals: JSON.parse(r.totals_json), total: r.total, reason: r.reason,
+  }));
+}
+
+export const listCreditNotes = async (range?: { from: string; to: string }): Promise<CreditNote[]> =>
+  (await listNotes('local_credit_notes', range)).map(({ number, ...n }) => ({ ...n, creditNumber: number }));
+export const listDebitNotes = async (range?: { from: string; to: string }): Promise<DebitNote[]> =>
+  (await listNotes('local_debit_notes', range)).map(({ number, ...n }) => ({ ...n, debitNumber: number }));
+
+// ---------- Audit log (written by database triggers) ----------
+
+export interface AuditEntry {
+  id: number;
+  at: number;
+  entity: string;
+  entityId: string;
+  action: 'create' | 'update' | 'delete';
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+// Newest first. `from`/`to` are local dates (YYYY-MM-DD), inclusive.
+export async function listAudit(range: { from: string; to: string }, limit = 1000): Promise<AuditEntry[]> {
+  const start = new Date(`${range.from}T00:00:00`).getTime();
+  const end = new Date(`${range.to}T23:59:59.999`).getTime();
+  const rows = await query<any>('SELECT * FROM local_audit WHERE at BETWEEN ? AND ? ORDER BY id DESC LIMIT ?', [start, end, limit]);
+  return rows.map((r) => ({
+    id: r.id, at: r.at, entity: r.entity, entityId: r.entity_id, action: r.action,
+    before: r.before_json ? JSON.parse(r.before_json) : null, after: r.after_json ? JSON.parse(r.after_json) : null,
   }));
 }
 
@@ -462,11 +466,11 @@ export function setSetting(key: string, value: unknown): Promise<void> {
 // ---------- Derived values ----------
 
 export const outstandingOf = (inv: Invoice) =>
-  inv.status === 'cancelled' ? 0 : Math.max(0, Math.round((inv.total - inv.paid - inv.credited) * 100) / 100);
+  inv.status === 'cancelled' ? 0 : Math.max(0, Math.round((inv.total + inv.debited - inv.paid - inv.credited) * 100) / 100);
 
 export function paymentStatusOf(inv: Invoice): { label: string; badge: string } {
   if (inv.status === 'cancelled') return { label: 'Cancelled', badge: 'badge badge-danger' };
-  if (inv.credited >= inv.total - 0.005) return { label: 'Credited', badge: 'badge badge-accent' };
+  if (inv.credited >= inv.total + inv.debited - 0.005) return { label: 'Credited', badge: 'badge badge-accent' };
   if (outstandingOf(inv) < 0.01) return { label: 'Paid', badge: 'badge badge-success' };
   if (inv.paid > 0) return { label: 'Partly Paid', badge: 'badge badge-warn' };
   return { label: 'Unpaid', badge: 'badge' };

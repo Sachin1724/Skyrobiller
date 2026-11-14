@@ -90,6 +90,34 @@ export function backupDatabase(destPath: string): { success: boolean; error?: st
   }
 }
 
+export interface BackupPreview {
+  products: number;
+  customers: number;
+  invoices: number;
+  lastInvoiceDate: string | null;
+  fileModified: number;
+}
+
+// What a backup file holds, so the user can check it is the right one before it replaces anything
+export async function previewBackup(srcPath: string): Promise<{ success: boolean; preview?: BackupPreview; error?: string }> {
+  try {
+    const SQL = await initSqlJs();
+    const candidate = new SQL.Database(fs.readFileSync(srcPath));
+    const one = (sql: string) => candidate.exec(sql)[0]?.values[0]?.[0];
+    const preview: BackupPreview = {
+      products: Number(one('SELECT count(*) FROM local_products')),
+      customers: Number(one('SELECT count(*) FROM local_customers')),
+      invoices: Number(one('SELECT count(*) FROM local_invoices')),
+      lastInvoiceDate: (one('SELECT max(issue_date) FROM local_invoices') as string | null) ?? null,
+      fileModified: fs.statSync(srcPath).mtimeMs,
+    };
+    candidate.close();
+    return { success: true, preview };
+  } catch (err: any) {
+    return { success: false, error: `Not a valid Skyro Biller backup: ${err.message}` };
+  }
+}
+
 // Replaces the live database with a backup file. The current DB is kept next to it as .before-restore.
 export async function restoreDatabase(srcPath: string): Promise<{ success: boolean; error?: string }> {
   try {

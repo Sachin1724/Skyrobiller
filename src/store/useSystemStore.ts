@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DeviceInfo } from '../types/electron';
+import type { DeviceInfo, BackupStatus } from '../types/electron';
 import { getSetting, setSetting } from '../lib/db';
 import type { TemplateId, Density } from '../lib/pdf';
 import type { AppModule } from './useNavStore';
@@ -43,6 +43,9 @@ interface SystemState {
   deviceInfo: DeviceInfo | null;
   company: Company;
   prefs: Prefs;
+  backup: BackupStatus | null; // shown in the status bar and Settings
+  setBackup: (status: BackupStatus) => void;
+  refreshBackup: () => Promise<void>;
   setIsOnline: (online: boolean) => void;
   setDeviceInfo: (info: DeviceInfo) => void;
   loadCompany: () => Promise<void>;
@@ -78,6 +81,9 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     copies: ['Original for Recipient'],
   },
   prefs: { theme: 'system', accent: '', density: 'comfortable', startScreen: 'dashboard', defaultGstRate: 18, defaultTermsDays: 15, hiddenCards: [] },
+  backup: null,
+  setBackup: (backup) => set({ backup }),
+  refreshBackup: async () => set({ backup: await window.electronAPI.backupStatus() }),
   setIsOnline: (online) => set({ isOnline: online }),
   setDeviceInfo: (deviceInfo) => set({ deviceInfo }),
   loadCompany: async () => {

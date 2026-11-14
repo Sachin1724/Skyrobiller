@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DeviceInfo, DbQueryResult } from '../../src/types/electron';
+import type { DeviceInfo, DbQueryResult, RestorePick, BackupStatus, BackupSettings } from '../../src/types/electron';
 
 const electronAPI = {
   // Menu bar: `callback` receives the action name of every menu item clicked. Returns an unsubscribe function.
@@ -26,8 +26,16 @@ const electronAPI = {
     ipcRenderer.invoke('db:save'),
   dbBackup: (): Promise<{ success: boolean; filePath?: string; error?: string }> =>
     ipcRenderer.invoke('db:backup'),
-  dbRestore: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('db:restore'),
+  dbRestorePick: (startIn?: string): Promise<RestorePick> => ipcRenderer.invoke('db:restorePick', startIn),
+  dbRestoreApply: (filePath: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('db:restoreApply', filePath),
+
+  // Automatic backup and logs
+  backupStatus: (): Promise<BackupStatus> => ipcRenderer.invoke('backup:status'),
+  backupSet: (change: Partial<BackupSettings>): Promise<BackupStatus> => ipcRenderer.invoke('backup:set', change),
+  backupRunNow: (): Promise<BackupStatus> => ipcRenderer.invoke('backup:runNow'),
+  backupChooseFolder: (): Promise<BackupStatus> => ipcRenderer.invoke('backup:chooseFolder'),
+  logError: (where: string, message: string) => ipcRenderer.invoke('log:error', where, message),
+  exportLogs: (): Promise<{ success: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke('log:export'),
 
   // PDF Generation and printing
   generatePdf: (options: { htmlContent: string; title: string }) =>

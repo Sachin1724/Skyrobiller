@@ -74,6 +74,7 @@ export function buildMenu({ send, checkForUpdates, openDataFolder, about }: Menu
       label: '&Help',
       submenu: [
         item('Skyro Biller Help', 'nav:help', 'F1'),
+        item('Command Palette (Ctrl+K)', 'palette'),
         item('Keyboard Shortcuts', 'shortcuts'),
         item('Start Tutorial…', 'tour'),
         separator,

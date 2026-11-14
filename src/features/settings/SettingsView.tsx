@@ -5,6 +5,7 @@ import { documentHtml, TEMPLATES, ACCENT_PRESETS, DENSITIES, COPY_LABELS, type T
 import { useSystemStore, type Company, type Prefs } from '../../store/useSystemStore';
 import { useMenuAction, type AppModule } from '../../store/useNavStore';
 import { compressImage } from '../../lib/image';
+import type { BackupSettings } from '../../types/electron';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
 const DASHBOARD_CARDS: [string, string][] = [['month', 'Sales This Month'], ['year', 'Sales This Financial Year'], ['outstanding', 'Outstanding'], ['progress', 'In Progress']];
@@ -34,7 +35,7 @@ const sampleDocument = (company: Company): PrintableDocument => ({
 });
 
 export const SettingsView: React.FC = () => {
-  const { company, updateCompany, deviceInfo, prefs, updatePrefs } = useSystemStore();
+  const { company, updateCompany, deviceInfo, prefs, updatePrefs, backup, setBackup } = useSystemStore();
   const designSection = useRef<HTMLElement>(null);
   const customizeSection = useRef<HTMLElement>(null);
   const [template, setTemplate] = useState<TemplateId>(company.template);
@@ -97,10 +98,24 @@ export const SettingsView: React.FC = () => {
     else if (res.error !== 'Cancelled') say('', `Backup failed: ${res.error}`);
   };
 
+  // Pick a file, show what is in it, and only then replace the data
   const handleRestore = async () => {
-    if (!window.confirm('Restore replaces ALL current data on this computer with the backup file. The current data is kept beside the database as “.before-restore”. Continue?')) return;
-    const res = await window.electronAPI.dbRestore(); // on success the window reloads
-    if (!res.success && res.error !== 'Cancelled') say('', res.error ?? 'Restore failed');
+    const pick = await window.electronAPI.dbRestorePick(backup?.effectiveFolder);
+    if (!pick.success) return pick.error === 'Cancelled' ? undefined : say('', pick.error ?? 'Could not read that file');
+    const p = pick.preview!;
+    const summary = `${p.invoices} invoices (latest ${p.lastInvoiceDate ?? 'none'}), ${p.customers} customers, ${p.products} products. File saved ${new Date(p.fileModified).toLocaleString()}.`;
+    if (!window.confirm(`This backup holds ${summary}\n\nRestoring replaces ALL current data on this computer. The current data is kept beside the database as “.before-restore”. Continue?`)) return;
+    const res = await window.electronAPI.dbRestoreApply(pick.filePath!); // on success the window reloads
+    if (!res.success) say('', res.error ?? 'Restore failed');
+  };
+
+  const changeBackup = (change: Partial<BackupSettings>) => window.electronAPI.backupSet(change).then(setBackup).catch((err) => say('', `Backup setting not saved: ${err.message}`));
+  const backupNow = () => window.electronAPI.backupRunNow().then((s) => { setBackup(s); s.lastError ? say('', `Backup failed: ${s.lastError}`) : say(`Backup written to ${s.lastFile}`); });
+  const chooseFolder = () => window.electronAPI.backupChooseFolder().then(setBackup);
+  const exportLogs = async () => {
+    const res = await window.electronAPI.exportLogs();
+    if (res.success) say(`Logs saved to ${res.filePath}`);
+    else if (res.error !== 'Cancelled') say('', `Could not export logs: ${res.error}`);
   };
 
   const text = (name: keyof Company, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}, span = '') => (
@@ -296,11 +311,25 @@ export const SettingsView: React.FC = () => {
       <section className="card p-5 space-y-3 max-w-3xl">
         <h2 className="text-[15px] font-semibold tracking-tight">Backup</h2>
         <p className="text-ink-2">
-          All data lives in one database file on this computer{deviceInfo ? ` (${deviceInfo.hostname})` : ''}. Save a backup to a USB drive or cloud folder regularly.
+          All data lives in one database file on this computer{deviceInfo ? ` (${deviceInfo.hostname})` : ''}. A copy is saved automatically once a day. Point it at a USB drive or a cloud-synced folder so it survives this computer.
         </p>
-        <div className="flex gap-2">
-          <button onClick={handleBackup} className="btn btn-primary">Save Backup…</button>
+        {backup && (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-center">
+            <dt className="text-ink-2">Automatic backup</dt>
+            <dd><label className="flex items-center gap-2"><input type="checkbox" checked={backup.enabled} onChange={(e) => changeBackup({ enabled: e.target.checked })} className="accent-accent" />Back up daily</label></dd>
+            <dt className="text-ink-2">Folder</dt>
+            <dd className="flex items-center gap-2 min-w-0"><span className="truncate" title={backup.effectiveFolder}>{backup.effectiveFolder}</span><button onClick={chooseFolder} className="btn shrink-0">Change…</button></dd>
+            <dt className="text-ink-2">Keep last</dt>
+            <dd><input type="number" min={1} max={365} defaultValue={backup.keep} onBlur={(e) => changeBackup({ keep: Number(e.target.value) })} aria-label="Number of automatic backups to keep" className="field w-20 num" /></dd>
+            <dt className="text-ink-2">Last backup</dt>
+            <dd>{backup.lastError ? <span className="error">Failed: {backup.lastError}</span> : backup.lastAt ? new Date(backup.lastAt).toLocaleString() : 'None yet'}</dd>
+          </dl>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button onClick={backupNow} className="btn btn-primary">Back Up Now</button>
+          <button onClick={handleBackup} className="btn">Save a Copy…</button>
           <button onClick={handleRestore} className="btn btn-danger">Restore From Backup…</button>
+          <button onClick={exportLogs} className="btn btn-plain ml-auto">Export Logs…</button>
         </div>
       </section>
     </div>

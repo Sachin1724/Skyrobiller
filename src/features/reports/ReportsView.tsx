@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Download, FileSpreadsheet } from 'lucide-react';
+import { Download, FileSpreadsheet, FileJson } from 'lucide-react';
 import { computeInvoice } from '../../lib/gst';
-import { listInvoices, listCreditNotes, financialYearOf, outstandingOf, paymentStatusOf, type Invoice, type CreditNote } from '../../lib/db';
+import { listInvoices, listCreditNotes, listDebitNotes, financialYearOf, outstandingOf, paymentStatusOf, type Invoice, type CreditNote, type DebitNote } from '../../lib/db';
+import { buildGstr1, isB2cl } from '../../lib/gstr1.ts';
 import { downloadCsv } from '../../lib/csv';
 import { todayISO } from '../../lib/utils';
 import { useMenuAction } from '../../store/useNavStore';
+import { useSystemStore } from '../../store/useSystemStore';
+import { AuditLog } from './AuditLog';
 
 type Cell = string | number;
 interface Report { columns: string[]; rows: Cell[][] }
@@ -41,7 +44,7 @@ const taxedLines = (invoices: Invoice[]) =>
   invoices.flatMap((inv) => inv.items.map((line) => ({ inv, line, t: computeInvoice([line], 'a', inv.totals.intraState ? 'a' : 'b') })));
 
 // `sheet` is the tab name in the Excel workbook: at most 31 characters, and the GST ones match the GSTR-1 offline tool
-const REPORTS: Record<string, { label: string; sheet: string; group: string; build: (invoices: Invoice[], credits: CreditNote[]) => Report }> = {
+const REPORTS: Record<string, { label: string; sheet: string; group: string; build: (invoices: Invoice[], credits: CreditNote[], debits: DebitNote[]) => Report }> = {
   register: {
     label: 'Invoice Register',
     sheet: 'Invoice Register',
@@ -128,13 +131,32 @@ const REPORTS: Record<string, { label: string; sheet: string; group: string; bui
       };
     },
   },
+  b2cl: {
+    label: 'GSTR-1 B2C Large (Unregistered, Other State, Above ₹1 Lakh)',
+    sheet: 'b2cl',
+    group: 'GST Filing',
+    build: (inv) => {
+      const lines = taxedLines(inv.filter((i) => isB2cl(i, i.total)));
+      const perInvoiceRate = new Map<string, { inv: Invoice; rate: number; taxable: number }>();
+      for (const x of lines) {
+        const key = `${x.inv.id}|${x.line.gstRate}`;
+        const g = perInvoiceRate.get(key) ?? { inv: x.inv, rate: x.line.gstRate, taxable: 0 };
+        g.taxable += x.t.taxable;
+        perInvoiceRate.set(key, g);
+      }
+      return {
+        columns: ['Invoice Number', 'Invoice Date', 'Invoice Value', 'Place Of Supply', 'Rate', 'Taxable Value', 'Cess Amount'],
+        rows: [...perInvoiceRate.values()].reverse().map((g) => [g.inv.invoiceNumber, gstDate(g.inv.issueDate), g.inv.total, placeOfSupply(g.inv), g.rate, round2(g.taxable), 0]),
+      };
+    },
+  },
   b2c: {
-    label: 'GSTR-1 B2C (Unregistered Customers)',
+    label: 'GSTR-1 B2C Small (Other Unregistered Sales)',
     sheet: 'b2cs',
     group: 'GST Filing',
     build: (inv) => ({
       columns: ['Type', 'Place Of Supply', 'Rate', 'Taxable Value', 'Cess Amount'],
-      rows: groupSum(taxedLines(inv.filter((i) => !i.customer.gstin)), (x) => `${placeOfSupply(x.inv)}|${String(x.line.gstRate).padStart(2, '0')}`, (x) => [x.t.taxable])
+      rows: groupSum(taxedLines(inv.filter((i) => !i.customer.gstin && !isB2cl(i, i.total))), (x) => `${placeOfSupply(x.inv)}|${String(x.line.gstRate).padStart(2, '0')}`, (x) => [x.t.taxable])
         .map(([key, taxable]) => { const [pos, rate] = String(key).split('|'); return ['OE', pos, Number(rate), taxable, 0]; }),
     }),
   },
@@ -159,14 +181,17 @@ const REPORTS: Record<string, { label: string; sheet: string; group: string; bui
     }),
   },
   credits: {
-    label: 'Credit Notes (GSTR-1 CDNR)',
+    label: 'Credit and Debit Notes (GSTR-1 CDNR)',
     sheet: 'cdnr',
     group: 'GST Filing',
-    build: (_inv, credits) => ({
+    build: (_inv, credits, debits) => ({
       columns: ['GSTIN/UIN of Recipient', 'Receiver Name', 'Note Number', 'Note Date', 'Note Type', 'Against Invoice', 'Place Of Supply', 'Note Value', 'Taxable Value', 'Tax'],
-      rows: credits.map((c) => [
-        c.customer.gstin || 'Unregistered', c.customer.businessName, c.creditNumber, gstDate(c.issueDate), 'C', c.invoiceNumber,
-        `${c.customer.stateCode}-${c.customer.stateName}`, c.total, c.totals.taxable, round2(c.totals.cgst + c.totals.sgst + c.totals.igst),
+      rows: [
+        ...credits.map((c) => ({ n: c, number: c.creditNumber, type: 'C' })),
+        ...debits.map((d) => ({ n: d, number: d.debitNumber, type: 'D' })),
+      ].sort((a, b) => b.n.issueDate.localeCompare(a.n.issueDate) || b.number.localeCompare(a.number)).map(({ n, number, type }) => [
+        n.customer.gstin || 'Unregistered', n.customer.businessName, number, gstDate(n.issueDate), type, n.invoiceNumber,
+        `${n.customer.stateCode}-${n.customer.stateName}`, n.total, n.totals.taxable, round2(n.totals.cgst + n.totals.sgst + n.totals.igst),
       ]),
     }),
   },
@@ -184,11 +209,11 @@ const totalsOf = (report: Report) => report.columns.map((c, i) =>
   typeof report.rows[0]?.[i] === 'number' && !/rate|invoice value/i.test(c) ? round2(report.rows.reduce((sum, r) => sum + (r[i] as number), 0)) : null);
 
 // One .xlsx file with every report as its own tab: bold frozen header, real numbers, bold totals row
-async function downloadWorkbook(fileName: string, invoices: Invoice[], credits: CreditNote[]) {
+async function downloadWorkbook(fileName: string, invoices: Invoice[], credits: CreditNote[], debits: DebitNote[]) {
   const { default: writeExcelFile } = await import('write-excel-file/browser');
   const bold = (value: Cell | null) => (value === null || value === '' ? null : { value, fontWeight: 'bold' as const });
   await writeExcelFile(Object.values(REPORTS).map((r) => {
-    const report = r.build(invoices, credits);
+    const report = r.build(invoices, credits, debits);
     const totals = totalsOf(report);
     const data = [
       report.columns.map(bold),
@@ -204,20 +229,25 @@ async function downloadWorkbook(fileName: string, invoices: Invoice[], credits: 
 type StatusFilter = 'all' | 'paid' | 'unpaid';
 
 export const ReportsView: React.FC = () => {
+  const company = useSystemStore((s) => s.company);
   const today = todayISO();
   const [from, setFrom] = useState(`${today.slice(0, 7)}-01`);
   const [to, setTo] = useState(today);
   const [kind, setKind] = useState('register');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [allInvoices, setAllInvoices] = useState<Invoice[]>([]); // cancelled ones too: GSTR-1 counts them in the document summary
   const [credits, setCredits] = useState<CreditNote[]>([]);
+  const [debits, setDebits] = useState<DebitNote[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([listInvoices({ from, to }), listCreditNotes({ from, to })])
-      .then(([list, notes]) => {
+    Promise.all([listInvoices({ from, to }), listCreditNotes({ from, to }), listDebitNotes({ from, to })])
+      .then(([list, notes, raised]) => {
+        setAllInvoices(list);
         setInvoices(list.filter((i) => i.status === 'issued')); // cancelled invoices are not sales
         setCredits(notes);
+        setDebits(raised);
       })
       .catch((e) => setError(e.message));
   }, [from, to]);
@@ -227,26 +257,45 @@ export const ReportsView: React.FC = () => {
   const setRange = (range: { from: string; to: string }) => { setFrom(range.from); setTo(range.to); };
 
   const shown = invoices.filter((i) => status === 'all' || (status === 'paid') === (outstandingOf(i) < 0.01));
-  const report = REPORTS[kind].build(shown, credits);
+  const isAudit = kind === 'audit'; // not a sheet: it reads its own table and is not part of the Excel workbook
+  const report = REPORTS[isAudit ? 'register' : kind].build(shown, credits, debits);
   const totals = totalsOf(report);
   const isNumeric = (i: number) => typeof report.rows[0]?.[i] === 'number';
 
   const suffix = `${from}-to-${to}${status === 'all' ? '' : `-${status}`}`;
   const exportCsv = () => downloadCsv(`${kind}-${suffix}`, [report.columns, ...report.rows]);
-  const exportWorkbook = () => downloadWorkbook(`skyro-reports-${suffix}.xlsx`, shown, credits).catch((e) => setError(`Excel export failed: ${e.message}`));
+  const exportWorkbook = () => downloadWorkbook(`skyro-reports-${suffix}.xlsx`, shown, credits, debits).catch((e) => setError(`Excel export failed: ${e.message}`));
+
+  // GSTR-1 is filed per calendar month and read by the GST offline tool as JSON
+  const exportGstr1 = () => {
+    if (from.slice(0, 7) !== to.slice(0, 7)) { setError('GSTR-1 is filed one month at a time. Pick a single month first.'); return; }
+    const gstr1 = buildGstr1({ gstin: company.gstin, period: to.slice(0, 7), invoices: allInvoices, credits, debits });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(gstr1, null, 1)], { type: 'application/json' }));
+    a.download = `GSTR1_${company.gstin}_${gstr1.fp}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setError('');
+  };
+
+  const group = isAudit ? 'System' : REPORTS[kind].group;
+  const pickGroup = (g: string) => setKind(g === 'System' ? 'audit' : Object.keys(REPORTS).find((id) => REPORTS[id].group === g)!);
 
   return (
     <div className="page">
+      <div className="segmented" role="tablist" aria-label="Report group">
+        {[...GROUPS, 'System'].map((g) => (
+          <button key={g} role="tab" aria-selected={group === g} aria-pressed={group === g} onClick={() => pickGroup(g)}>{g === 'Bills' ? 'Sales' : g === 'Payments' ? 'Receivables' : g === 'System' ? 'Audit Log' : g}</button>
+        ))}
+      </div>
       <div className="flex flex-wrap items-end gap-3">
-        <label className="label">Report
-          <select value={kind} onChange={(e) => setKind(e.target.value)} className="field w-72">
-            {GROUPS.map((g) => (
-              <optgroup key={g} label={g}>
-                {Object.entries(REPORTS).filter(([, r]) => r.group === g).map(([id, r]) => <option key={id} value={id}>{r.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+        {!isAudit && (
+          <label className="label">Report
+            <select value={kind} onChange={(e) => setKind(e.target.value)} className="field w-80">
+              {Object.entries(REPORTS).filter(([, r]) => r.group === group).map(([id, r]) => <option key={id} value={id}>{r.label}</option>)}
+            </select>
+          </label>
+        )}
         <label className="label">Month
           <input type="month" value={from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : ''} max={today.slice(0, 7)} onChange={(e) => e.target.value && setRange(monthBounds(e.target.value))} className="field" />
         </label>
@@ -257,19 +306,27 @@ export const ReportsView: React.FC = () => {
           <input type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} className="field" />
         </label>
         <button onClick={() => setRange({ from: `${financialYearOf(today).slice(0, 4)}-04-01`, to: today })} className="btn">This Financial Year</button>
-        <div className="label">Payment
-          <div className="segmented" role="group" aria-label="Payment status">
-            {(['all', 'paid', 'unpaid'] as const).map((s) => (
-              <button key={s} aria-pressed={status === s} onClick={() => setStatus(s)}>{s[0].toUpperCase() + s.slice(1)}</button>
-            ))}
+        {!isAudit && (
+          <div className="label">Payment
+            <div className="segmented" role="group" aria-label="Payment status">
+              {(['all', 'paid', 'unpaid'] as const).map((s) => (
+                <button key={s} aria-pressed={status === s} onClick={() => setStatus(s)}>{s[0].toUpperCase() + s.slice(1)}</button>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2 ml-auto">
+        )}
+        <div className={`flex gap-2 ml-auto ${isAudit ? 'hidden' : ''}`}>
+          {group === 'GST Filing' && (
+            <button onClick={exportGstr1} disabled={allInvoices.length === 0 && credits.length === 0 && debits.length === 0} className="btn" title="JSON file for the GST offline tool: B2B, B2C Large and Small, notes, HSN, documents issued">
+              <FileJson className="h-4 w-4" aria-hidden />
+              GSTR-1 (JSON)
+            </button>
+          )}
           <button onClick={exportCsv} disabled={report.rows.length === 0} className="btn">
             <Download className="h-4 w-4" aria-hidden />
             This Sheet (CSV)
           </button>
-          <button onClick={exportWorkbook} disabled={shown.length === 0 && credits.length === 0} className="btn btn-primary">
+          <button onClick={exportWorkbook} disabled={shown.length === 0 && credits.length === 0 && debits.length === 0} className="btn btn-primary">
             <FileSpreadsheet className="h-4 w-4" aria-hidden />
             All Sheets (Excel)
           </button>
@@ -278,6 +335,7 @@ export const ReportsView: React.FC = () => {
 
       {error && <p role="alert" className="error">{error}</p>}
 
+      {isAudit ? <AuditLog from={from} to={to} /> : <>
       {/* Spreadsheet-style grid: ruled cells, header and totals stay in view while scrolling */}
       <div className="card overflow-auto max-h-[calc(100vh-17rem)]">
         <table className="grid-tbl">
@@ -317,8 +375,9 @@ export const ReportsView: React.FC = () => {
 
       <p className="text-xs text-ink-2">
         Cancelled invoices are excluded. Invoice reports show invoices as issued; credit notes are listed separately. The Payment filter applies to invoice reports.
-        GST Filing sheets follow the GSTR-1 offline tool columns; have your accountant confirm before filing. B2C invoices above ₹1 lakh to another state belong in B2C Large and are not split out here.
+        GST Filing sheets follow the GSTR-1 offline tool columns, and the GSTR-1 (JSON) file is built for its Import. Have your accountant confirm both before filing. B2C Large is an unregistered customer in another state with an invoice above ₹1 lakh; everything else unregistered is B2C Small.
       </p>
+      </>}
     </div>
   );
 };

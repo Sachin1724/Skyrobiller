@@ -78,6 +78,14 @@ const SCHEMA = `
     SELECT RAISE(ABORT, 'Invoice number, financial year, and sequence cannot be altered');
   END;
 
+  -- An issued invoice's content is locked. Corrections go through credit and debit notes; only cancelling changes the row.
+  DROP TRIGGER IF EXISTS trg_invoice_content_locked;
+  CREATE TRIGGER trg_invoice_content_locked
+  BEFORE UPDATE OF issue_date, due_date, customer_id, customer_name, customer_json, company_json, items_json, totals_json, total, notes ON local_invoices
+  BEGIN
+    SELECT RAISE(ABORT, 'Issued invoices cannot be edited; issue a credit note or debit note instead');
+  END;
+
   DROP TRIGGER IF EXISTS trg_invoice_cancelled_immutable;
   CREATE TRIGGER trg_invoice_cancelled_immutable
   BEFORE UPDATE ON local_invoices
@@ -130,11 +138,49 @@ const SCHEMA = `
     SELECT RAISE(ABORT, 'Credit notes cannot be deleted');
   END;
 
-  -- Credit notes against one invoice can never add up to more than the invoice
-  CREATE TRIGGER IF NOT EXISTS trg_credit_within_invoice
+  -- Debit notes: the documented way to raise an issued invoice (extra charge, price correction). Own number series, never edited.
+  CREATE TABLE IF NOT EXISTS local_debit_notes (
+    id TEXT PRIMARY KEY,
+    debit_number TEXT NOT NULL UNIQUE,
+    financial_year TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    issue_date TEXT NOT NULL,
+    invoice_id TEXT NOT NULL REFERENCES local_invoices(id),
+    items_json TEXT NOT NULL,
+    totals_json TEXT NOT NULL,
+    total REAL NOT NULL CHECK (total > 0),
+    reason TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (financial_year, seq)
+  );
+
+  CREATE TRIGGER IF NOT EXISTS trg_debit_note_immutable
+  BEFORE UPDATE ON local_debit_notes
+  BEGIN
+    SELECT RAISE(ABORT, 'Debit notes cannot be edited');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_debit_note_no_delete
+  BEFORE DELETE ON local_debit_notes
+  BEGIN
+    SELECT RAISE(ABORT, 'Debit notes cannot be deleted');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_debit_on_issued_invoice
+  BEFORE INSERT ON local_debit_notes
+  WHEN NOT EXISTS (SELECT 1 FROM local_invoices WHERE id = NEW.invoice_id AND status = 'issued')
+  BEGIN
+    SELECT RAISE(ABORT, 'Debit notes can only be issued against an issued invoice');
+  END;
+
+  -- Credit notes against one invoice can never add up to more than the invoice plus its debit notes.
+  -- Dropped and recreated on every start so a changed rule reaches existing databases.
+  DROP TRIGGER IF EXISTS trg_credit_within_invoice;
+  CREATE TRIGGER trg_credit_within_invoice
   BEFORE INSERT ON local_credit_notes
   WHEN NEW.total > 0.005
       + coalesce((SELECT total FROM local_invoices WHERE id = NEW.invoice_id AND status = 'issued'), 0)
+      + coalesce((SELECT sum(total) FROM local_debit_notes WHERE invoice_id = NEW.invoice_id), 0)
       - coalesce((SELECT sum(total) FROM local_credit_notes WHERE invoice_id = NEW.invoice_id), 0)
   BEGIN
     SELECT RAISE(ABORT, 'Credit is more than the invoice value');
@@ -147,6 +193,7 @@ const SCHEMA = `
   BEFORE INSERT ON local_payments
   WHEN NEW.amount > 0.005
       + coalesce((SELECT total FROM local_invoices WHERE id = NEW.invoice_id AND status = 'issued'), 0)
+      + coalesce((SELECT sum(total) FROM local_debit_notes WHERE invoice_id = NEW.invoice_id), 0)
       - coalesce((SELECT sum(amount) FROM local_payments WHERE invoice_id = NEW.invoice_id), 0)
       - coalesce((SELECT sum(total) FROM local_credit_notes WHERE invoice_id = NEW.invoice_id), 0)
   BEGIN
@@ -180,8 +227,47 @@ const DRAFT_COLUMNS = [
   "status TEXT NOT NULL DEFAULT 'draft'", // quotations: draft | sent | accepted | declined | converted
 ];
 
+// Audit log: written by triggers, so no screen or import path can skip it. Rows can never be edited or deleted.
+const AUDIT_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS local_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),
+    before_json TEXT,
+    after_json TEXT
+  );
+  CREATE INDEX IF NOT EXISTS ix_local_audit_entity ON local_audit(entity, entity_id);
+  CREATE TRIGGER IF NOT EXISTS trg_audit_no_edit BEFORE UPDATE ON local_audit BEGIN SELECT RAISE(ABORT, 'Audit log cannot be edited'); END;
+  CREATE TRIGGER IF NOT EXISTS trg_audit_no_delete BEFORE DELETE ON local_audit BEGIN SELECT RAISE(ABORT, 'Audit log cannot be deleted'); END;
+`;
+
+// Columns recorded per table. Big blobs (items_json, logo) are left out on purpose; totals and status tell the story.
+const AUDITED: Record<string, { entity: string; id: string; cols: string[] }> = {
+  local_products: { entity: 'product', id: 'id', cols: ['sku', 'name', 'hsn_code', 'gst_rate', 'default_price', 'is_active'] },
+  local_customers: { entity: 'customer', id: 'id', cols: ['business_name', 'gstin', 'state_code', 'phone', 'payment_terms_days', 'is_active'] },
+  local_invoices: { entity: 'invoice', id: 'id', cols: ['invoice_number', 'customer_name', 'total', 'due_date', 'notes', 'status'] },
+  local_payments: { entity: 'payment', id: 'id', cols: ['invoice_id', 'amount', 'paid_on', 'method', 'reference'] },
+  local_credit_notes: { entity: 'credit_note', id: 'id', cols: ['credit_number', 'invoice_id', 'total', 'reason'] },
+  local_debit_notes: { entity: 'debit_note', id: 'id', cols: ['debit_number', 'invoice_id', 'total', 'reason'] },
+};
+
+function auditTriggers(): string {
+  return Object.entries(AUDITED).map(([table, { entity, id, cols }]) => {
+    const snap = (row: 'OLD' | 'NEW') => `json_object(${cols.map((c) => `'${c}', ${row}.${c}`).join(', ')})`;
+    const log = (action: string, row: 'OLD' | 'NEW', before: string, after: string) =>
+      `CREATE TRIGGER IF NOT EXISTS trg_audit_${table}_${action} AFTER ${action === 'create' ? 'INSERT' : action.toUpperCase()} ON ${table} BEGIN ` +
+      `INSERT INTO local_audit (at, entity, entity_id, action, before_json, after_json) ` +
+      `VALUES (CAST(strftime('%s','now') AS INTEGER) * 1000, '${entity}', ${row}.${id}, '${action}', ${before}, ${after}); END;`;
+    return [log('create', 'NEW', 'NULL', snap('NEW')), log('update', 'NEW', snap('OLD'), snap('NEW')), log('delete', 'OLD', snap('OLD'), 'NULL')].join('\n');
+  }).join('\n');
+}
+
 export function applySchema(database: { run(sql: string): unknown }) {
   database.run(SCHEMA);
+  database.run(AUDIT_SCHEMA);
+  database.run(auditTriggers());
   for (const column of DRAFT_COLUMNS) {
     try {
       database.run(`ALTER TABLE local_drafts ADD COLUMN ${column}`);
