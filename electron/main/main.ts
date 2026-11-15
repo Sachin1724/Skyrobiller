@@ -285,7 +285,7 @@ ipcMain.handle('pdf:print', async (_event, { htmlContent }) => {
 
 // Updates come from GitHub Releases (see "publish" in electron-builder.yml). Only an installed build can update:
 // the portable exe and a dev run cannot, and say so.
-let updateReady = false;
+ipcMain.handle('update:install', () => { saveDatabase(); runAutoBackup(true); autoUpdater.quitAndInstall(); });
 function checkForUpdates(manual: boolean) {
   if (!app.isPackaged) {
     if (manual) dialog.showMessageBox({ type: 'info', title: 'Check for Updates', message: 'Updates work in the installed app.', detail: `This is a development run of ${app.getVersion()}.` });
@@ -293,15 +293,13 @@ function checkForUpdates(manual: boolean) {
   }
   autoUpdater.autoDownload = true;
   autoUpdater.removeAllListeners();
-  autoUpdater.on('update-available', (info) => { if (manual) dialog.showMessageBox({ type: 'info', title: 'Update found', message: `Version ${info.version} is downloading.`, detail: 'You will be asked to restart when it is ready. Your data is not touched.' }); });
+  // The renderer shows the update card (alert, progress ring, restart); only the "latest" and error answers to a manual check are dialogs
+  const tell = (msg: { state: 'available' | 'progress' | 'ready'; version?: string; percent?: number }) => win?.webContents.send('update', msg);
+  autoUpdater.on('update-available', (info) => tell({ state: 'available', version: info.version }));
+  autoUpdater.on('download-progress', (p) => tell({ state: 'progress', percent: Math.round(p.percent) }));
   autoUpdater.on('update-not-available', () => { if (manual) dialog.showMessageBox({ type: 'info', title: 'Check for Updates', message: `You have the latest version (${app.getVersion()}).` }); });
   autoUpdater.on('error', (err) => { logError('updater', err); if (manual) dialog.showMessageBox({ type: 'warning', title: 'Check for Updates', message: 'Could not check for updates.', detail: 'Check your internet connection and try again.' }); });
-  autoUpdater.on('update-downloaded', async (info) => {
-    if (updateReady) return;
-    updateReady = true;
-    const { response } = await dialog.showMessageBox({ type: 'question', buttons: ['Restart Now', 'Later'], defaultId: 0, cancelId: 1, title: 'Update ready', message: `Skyro Biller ${info.version} is ready.`, detail: 'Restart to finish updating. Your data is kept, and a backup is saved on exit.' });
-    if (response === 0) { saveDatabase(); runAutoBackup(true); autoUpdater.quitAndInstall(); }
-  });
+  autoUpdater.on('update-downloaded', (info) => { tell({ state: 'ready', version: info.version }); });
   autoUpdater.checkForUpdates().catch((err) => logError('updater', err));
 }
 

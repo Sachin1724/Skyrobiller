@@ -13,6 +13,7 @@ import { toast } from './store/useToastStore';
 import { friendlyError } from './lib/friendlyError';
 import { Reveal } from './components/Reveal';
 import { Tour } from './components/Tour';
+import { UpdateNotice } from './components/UpdateNotice';
 
 // Views
 import { DashboardView } from './features/dashboard/DashboardView';
@@ -215,6 +216,7 @@ export const App: React.FC = () => {
       {paletteOpen && <CommandPalette commands={PALETTE_COMMANDS} onRun={runCommand} onClose={() => setPaletteOpen(false)} />}
 
       <ToastHost />
+      <UpdateNotice />
     </div>
   );
 };

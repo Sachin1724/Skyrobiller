@@ -37,6 +37,8 @@ export interface RestorePick {
 export interface ElectronAPI {
   // Menu bar and window
   onMenu: (callback: (action: string) => void) => () => void;
+  onUpdate: (callback: (msg: { state: 'available' | 'progress' | 'ready'; version?: string; percent?: number }) => void) => () => void;
+  installUpdate: () => Promise<void>;
   closeReady: () => Promise<void>;
   setTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>;
 

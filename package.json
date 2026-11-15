@@ -1,6 +1,6 @@
 {
   "name": "skyro-biller",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "type": "module",
   "description": "Smart Windows Billing and Invoicing Application for UAV Parts",
   "main": "dist-electron/main.js",

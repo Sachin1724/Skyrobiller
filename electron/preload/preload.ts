@@ -15,6 +15,14 @@ const electronAPI = {
   // Device & System
   getDeviceInfo: (): Promise<DeviceInfo> => ipcRenderer.invoke('device:getInfo'),
 
+  // Updates: the main process reports available / progress / ready; the app asks for the restart
+  onUpdate: (callback: (msg: { state: 'available' | 'progress' | 'ready'; version?: string; percent?: number }) => void) => {
+    const listener = (_event: unknown, msg: any) => callback(msg);
+    ipcRenderer.on('update', listener);
+    return () => { ipcRenderer.removeListener('update', listener); };
+  },
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+
   // Local SQLite
   dbQuery: <T = any>(sql: string, params?: any[]): Promise<DbQueryResult<T>> =>
     ipcRenderer.invoke('db:query', { sql, params }),
