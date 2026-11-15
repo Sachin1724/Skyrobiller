@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from '../../store/useToastStore';
 import { friendlyError } from '../../lib/friendlyError';
-import { Search, Play, Trash2, FileDown, FileText, Wrench, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus } from 'lucide-react';
+import { Search, Play, Trash2, FileDown, FileText, Wrench, IndianRupee, Ban, Eye, Copy, Undo2, Printer, FilePlus, Trash, RotateCcw } from 'lucide-react';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 import { useNavStore, useMenuAction } from '../../store/useNavStore';
 import { useSystemStore } from '../../store/useSystemStore';
 import {
-  listDrafts, listInvoices, listCreditNotes, listDebitNotes, listPaymentsForInvoice, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf, daysOverdue,
+  listDrafts, listInvoices, listTrashedInvoices, trashInvoice, restoreInvoice, listCreditNotes, listDebitNotes, listPaymentsForInvoice, saveDraft, deleteDraft, cancelInvoice, newDraftId, outstandingOf, paymentStatusOf, daysOverdue,
   type Draft, type Invoice, type CreditNote, type DebitNote,
 } from '../../lib/db';
 import { invoiceDocument, creditNoteDocument, debitNoteDocument, documentHtml, buildLook, savePdf, printDocument, type PrintableDocument } from '../../lib/pdf';
@@ -22,7 +22,7 @@ import { CorrectInvoiceModal } from './CorrectInvoiceModal';
 import { fetchStoreOrders, orderDocument, storeInvoiceNumber, paymentIdOf, type StoreOrder } from '../../lib/skyrostore';
 import { PaymentModal } from '../payments/PaymentModal';
 
-type Tab = 'issued' | 'drafts' | 'parked' | 'credits' | 'debits' | 'online';
+type Tab = 'issued' | 'drafts' | 'parked' | 'credits' | 'debits' | 'online' | 'trash';
 
 // Quick filters on the issued list; each one is a plain rule on the invoice
 const FILTERS = {
@@ -43,6 +43,7 @@ export const InvoicesView: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [credits, setCredits] = useState<CreditNote[]>([]);
   const [debits, setDebits] = useState<DebitNote[]>([]);
+  const [trashed, setTrashed] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<FilterId>('all');
   const [loaded, setLoaded] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
@@ -57,8 +58,8 @@ export const InvoicesView: React.FC = () => {
   const isEditorOpen = activeInvoiceDraftId !== null;
 
   const reload = () =>
-    Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes(), listDebitNotes()])
-      .then(([d, i, c, dn]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); setLoaded(true); })
+    Promise.all([listDrafts('invoice'), listInvoices(), listCreditNotes(), listDebitNotes(), listTrashedInvoices()])
+      .then(([d, i, c, dn, t]) => { setDrafts(d); setInvoices(i); setCredits(c); setDebits(dn); setTrashed(t); setLoaded(true); })
       .catch((e) => setError(friendlyError(e)));
   // Refresh when the editor closes and when the parked list closes (it can delete drafts)
   useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen]);
@@ -116,6 +117,15 @@ export const InvoicesView: React.FC = () => {
     })) run(cancelInvoice(inv.id));
   };
 
+  // Hidden, not deleted: the number stays used and the invoice can be restored from the Recycle Bin
+  const handleTrash = async (inv: Invoice) => {
+    if (await confirmDialog({
+      title: `Move ${inv.invoiceNumber} to the Recycle Bin?`, details: [['Customer', inv.customer.businessName], ['Total', formatCurrencyINR(inv.total)]],
+      message: `The invoice${inv.paid > 0 ? ' and its payments are' : ' is'} hidden from lists, reports and GSTR-1. The number ${inv.invoiceNumber} stays used and is never reissued. You can restore it any time.`,
+      confirmLabel: 'Move to Recycle Bin', danger: true,
+    })) run(trashInvoice(inv.id).then(() => toast.info(`${inv.invoiceNumber} moved to the Recycle Bin.`)));
+  };
+
   // "Start again": the editable copy is saved first, so a failure never leaves the user with neither bill
   const handleRestart = async (inv: Invoice) => {
     if (!(await confirmDialog({
@@ -169,6 +179,7 @@ export const InvoicesView: React.FC = () => {
   const term = searchTerm.toLowerCase();
   const matches = (...values: (string | undefined)[]) => values.some((v) => v && v.toLowerCase().includes(term));
   const shownInvoices = invoices.filter((i) => FILTERS[filter].test(i) && matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin, i.paymentReferences));
+  const shownTrashed = trashed.filter((i) => matches(i.invoiceNumber, i.customer.businessName, i.customer.gstin, i.paymentReferences));
   const shownDrafts = drafts.filter((d) => matches(d.draftId, d.customer?.businessName ?? '', d.customer?.gstin ?? '') && (tab === 'parked') === d.isParked);
   const shownCredits = credits.filter((c) => matches(c.creditNumber, c.invoiceNumber, c.customer.businessName));
   const shownDebits = debits.filter((d) => matches(d.debitNumber, d.invoiceNumber, d.customer.businessName));
@@ -184,6 +195,7 @@ export const InvoicesView: React.FC = () => {
           <button aria-pressed={tab === 'credits'} onClick={() => setTab('credits')}>Credit Notes ({credits.length})</button>
           <button aria-pressed={tab === 'debits'} onClick={() => setTab('debits')}>Debit Notes ({debits.length})</button>
           <button aria-pressed={tab === 'online'} onClick={() => setTab('online')}>Online Store</button>
+          <button aria-pressed={tab === 'trash'} onClick={() => setTab('trash')}>Recycle Bin ({trashed.length})</button>
         </div>
         <div className="relative w-80">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-ink-3 pointer-events-none" aria-hidden />
@@ -269,10 +281,11 @@ export const InvoicesView: React.FC = () => {
                       <RowMenu
                         label={`More actions for ${n}`}
                         items={[
-                          { label: 'Correct this invoice…', icon: Wrench, onClick: () => setCorrecting(inv), disabled: inv.status === 'cancelled', title: 'Wrong customer, items or amount? Start here' },
+                          { label: 'Correct this invoice…', icon: Wrench, onClick: () => setCorrecting(inv), disabled: inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0 || inv.debited > 0, title: inv.paid > 0 || inv.credited > 0 || inv.debited > 0 ? 'Has payments or notes. Use a credit note, a debit note, or create a new bill' : 'Wrong customer, items or amount? Start here' },
                           { label: 'Reduce amount (credit note)', icon: Undo2, onClick: () => setCrediting(inv), disabled: inv.status === 'cancelled' || inv.credited >= inv.total + inv.debited - 0.005, title: 'Goods returned or a discount: the customer owes less' },
                           { label: 'Charge extra (debit note)', icon: FilePlus, onClick: () => setDebiting(inv), disabled: inv.status === 'cancelled', title: 'Forgot a charge or the price was too low: the customer owes more' },
-                          { label: 'Copy as a new bill', icon: Copy, onClick: () => handleDuplicate(inv), title: 'Starts a new draft with the same customer and items' },
+                          { label: 'Create new from this', icon: Copy, onClick: () => handleDuplicate(inv), title: 'Starts a new draft with the same customer and items. This invoice stays as it is' },
+                          { label: 'Move to Recycle Bin', icon: Trash, danger: true, onClick: () => handleTrash(inv), disabled: inv.credited > 0 || inv.debited > 0, title: inv.credited > 0 || inv.debited > 0 ? 'Has credit or debit notes' : 'Hide this invoice. You can restore it' },
                           {
                             label: 'Cancel this invoice', icon: Ban, danger: true, onClick: () => handleCancel(inv),
                             disabled: inv.status === 'cancelled' || inv.paid > 0 || inv.credited > 0 || inv.debited > 0,
@@ -405,6 +418,39 @@ export const InvoicesView: React.FC = () => {
                         { label: 'Save PDF', icon: FileDown, onClick: () => savePdf(debitNoteDocument(d), company).catch(fail) },
                       ]}
                     />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {tab === 'trash' && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Invoice No.</th><th>Date</th><th>Customer</th><th>Status</th><th>Deleted</th>
+                <th className="num">Total</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loaded && <SkeletonRows columns={7} />}
+              {loaded && shownTrashed.length === 0 && <tr><td colSpan={7} className="empty">{searchTerm ? 'No deleted invoices match this search.' : 'Recycle Bin is empty. Invoices you delete wait here and can be restored.'}</td></tr>}
+              {shownTrashed.map((inv) => (
+                <tr key={inv.id}>
+                  <td className="font-medium tabular-nums whitespace-nowrap">{inv.invoiceNumber}</td>
+                  <td className="whitespace-nowrap">{formatDate(inv.issueDate)}</td>
+                  <td className="max-w-xs"><div className="truncate">{inv.customer.businessName}</div></td>
+                  <td><span className={paymentStatusOf(inv).badge}>{paymentStatusOf(inv).label}</span></td>
+                  <td className="whitespace-nowrap">{inv.deletedAt ? formatDate(inv.deletedAt) : ''}</td>
+                  <td className="num">{formatCurrencyINR(inv.total)}</td>
+                  <td className="num">
+                    <button onClick={() => handlePreviewInvoice(inv)} className="btn btn-icon" aria-label={`View ${inv.invoiceNumber}`} title="View"><Eye className="h-4 w-4" aria-hidden /></button>
+                    <button onClick={() => run(restoreInvoice(inv.id).then(() => toast.success(`${inv.invoiceNumber} restored.`)))} className="btn">
+                      <RotateCcw className="h-4 w-4" aria-hidden />
+                      Restore
+                    </button>
                   </td>
                 </tr>
               ))}

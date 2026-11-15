@@ -143,6 +143,18 @@ await assert.rejects(credit('D-2'), /more than the invoice value/); // cancelled
 assert.match((await raw(`UPDATE local_credit_notes SET total = 1`)).error, /cannot be edited/);
 assert.match((await raw(`DELETE FROM local_credit_notes`)).error, /cannot be deleted/);
 
+// --- Recycle Bin: hidden, never deleted; number stays used; invoices with notes stay put
+await db.trashInvoice('D-1');
+assert.deepEqual([(await db.listInvoices()).some((i) => i.id === 'D-1'), (await db.listTrashedInvoices()).map((i) => i.id)], [false, ['D-1']]);
+assert.equal((await db.listPayments()).some((x) => x.invoiceId === 'D-1'), false); // its payments hide with it
+await db.trashInvoice('D-2'); // cancelled invoices can be trashed and restored too
+assert.equal(await db.nextInvoiceNumber('SKY', '2026-11-20'), 'SKY/2026-27/0003'); // both newest numbers hidden, still used
+await assert.rejects(db.trashInvoice('D-3'), /credit or debit notes/);
+await db.restoreInvoice('D-1');
+await db.restoreInvoice('D-2');
+assert.deepEqual([(await db.listTrashedInvoices()).length, (await db.listInvoices()).find((i) => i.id === 'D-1')!.paid], [0, 6844]);
+assert.match((await raw(`DELETE FROM local_invoices WHERE id = 'D-1'`)).error, /cannot be deleted/); // still never removed
+
 // --- CSV import: products upsert by SKU, customers skip a GSTIN that is already saved
 await db.importProducts([{ ...product, name: 'Imported Name', defaultPrice: 7000 }, { ...product, sku: 'NEW-1', name: 'New One' }]);
 const imported = await db.searchProducts('');

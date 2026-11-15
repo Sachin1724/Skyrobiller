@@ -86,14 +86,6 @@ const SCHEMA = `
     SELECT RAISE(ABORT, 'Issued invoices cannot be edited; issue a credit note or debit note instead');
   END;
 
-  DROP TRIGGER IF EXISTS trg_invoice_cancelled_immutable;
-  CREATE TRIGGER trg_invoice_cancelled_immutable
-  BEFORE UPDATE ON local_invoices
-  WHEN OLD.status = 'cancelled'
-  BEGIN
-    SELECT RAISE(ABORT, 'Cancelled invoices cannot be edited');
-  END;
-
   CREATE TRIGGER IF NOT EXISTS trg_invoice_no_delete
   BEFORE DELETE ON local_invoices
   BEGIN
@@ -227,6 +219,26 @@ const DRAFT_COLUMNS = [
   "status TEXT NOT NULL DEFAULT 'draft'", // quotations: draft | sent | accepted | declined | converted
 ];
 
+// Recycle Bin: an invoice is hidden (deleted_at set), never removed, so its number stays used. Needs the deleted_at column, so it runs after the ALTER.
+const TRASH_SCHEMA = `
+  DROP TRIGGER IF EXISTS trg_invoice_cancelled_immutable;
+  CREATE TRIGGER trg_invoice_cancelled_immutable
+  BEFORE UPDATE ON local_invoices
+  WHEN OLD.status = 'cancelled' AND NEW.deleted_at IS OLD.deleted_at
+  BEGIN
+    SELECT RAISE(ABORT, 'Cancelled invoices cannot be edited');
+  END;
+
+  DROP TRIGGER IF EXISTS trg_invoice_trash_guard;
+  CREATE TRIGGER trg_invoice_trash_guard
+  BEFORE UPDATE OF deleted_at ON local_invoices
+  WHEN NEW.deleted_at IS NOT NULL
+    AND (EXISTS (SELECT 1 FROM local_credit_notes WHERE invoice_id = NEW.id) OR EXISTS (SELECT 1 FROM local_debit_notes WHERE invoice_id = NEW.id))
+  BEGIN
+    SELECT RAISE(ABORT, 'Invoices with credit or debit notes cannot be moved to the Recycle Bin');
+  END;
+`;
+
 // Audit log: written by triggers, so no screen or import path can skip it. Rows can never be edited or deleted.
 const AUDIT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS local_audit (
@@ -247,7 +259,7 @@ const AUDIT_SCHEMA = `
 const AUDITED: Record<string, { entity: string; id: string; cols: string[] }> = {
   local_products: { entity: 'product', id: 'id', cols: ['sku', 'name', 'hsn_code', 'gst_rate', 'default_price', 'is_active'] },
   local_customers: { entity: 'customer', id: 'id', cols: ['business_name', 'gstin', 'state_code', 'phone', 'payment_terms_days', 'is_active'] },
-  local_invoices: { entity: 'invoice', id: 'id', cols: ['invoice_number', 'customer_name', 'total', 'due_date', 'notes', 'status'] },
+  local_invoices: { entity: 'invoice', id: 'id', cols: ['invoice_number', 'customer_name', 'total', 'due_date', 'notes', 'status', 'deleted_at'] },
   local_payments: { entity: 'payment', id: 'id', cols: ['invoice_id', 'amount', 'paid_on', 'method', 'reference'] },
   local_credit_notes: { entity: 'credit_note', id: 'id', cols: ['credit_number', 'invoice_id', 'total', 'reason'] },
   local_debit_notes: { entity: 'debit_note', id: 'id', cols: ['debit_number', 'invoice_id', 'total', 'reason'] },
@@ -257,7 +269,7 @@ function auditTriggers(): string {
   return Object.entries(AUDITED).map(([table, { entity, id, cols }]) => {
     const snap = (row: 'OLD' | 'NEW') => `json_object(${cols.map((c) => `'${c}', ${row}.${c}`).join(', ')})`;
     const log = (action: string, row: 'OLD' | 'NEW', before: string, after: string) =>
-      `CREATE TRIGGER IF NOT EXISTS trg_audit_${table}_${action} AFTER ${action === 'create' ? 'INSERT' : action.toUpperCase()} ON ${table} BEGIN ` +
+      `DROP TRIGGER IF EXISTS trg_audit_${table}_${action}; CREATE TRIGGER trg_audit_${table}_${action} AFTER ${action === 'create' ? 'INSERT' : action.toUpperCase()} ON ${table} BEGIN ` +
       `INSERT INTO local_audit (at, entity, entity_id, action, before_json, after_json) ` +
       `VALUES (CAST(strftime('%s','now') AS INTEGER) * 1000, '${entity}', ${row}.${id}, '${action}', ${before}, ${after}); END;`;
     return [log('create', 'NEW', 'NULL', snap('NEW')), log('update', 'NEW', snap('OLD'), snap('NEW')), log('delete', 'OLD', snap('OLD'), 'NULL')].join('\n');
@@ -267,12 +279,13 @@ function auditTriggers(): string {
 export function applySchema(database: { run(sql: string): unknown }) {
   database.run(SCHEMA);
   database.run(AUDIT_SCHEMA);
-  database.run(auditTriggers());
-  for (const column of DRAFT_COLUMNS) {
+  for (const [table, column] of [...DRAFT_COLUMNS.map((c) => ['local_drafts', c]), ['local_invoices', 'deleted_at INTEGER']]) {
     try {
-      database.run(`ALTER TABLE local_drafts ADD COLUMN ${column}`);
+      database.run(`ALTER TABLE ${table} ADD COLUMN ${column}`);
     } catch {
       // column already exists
     }
   }
+  database.run(TRASH_SCHEMA);
+  database.run(auditTriggers());
 }

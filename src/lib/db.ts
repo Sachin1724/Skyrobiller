@@ -64,6 +64,7 @@ export interface Invoice {
   credited: number; // total of credit notes against this invoice
   debited: number; // total of debit notes against this invoice
   paymentReferences?: string;
+  deletedAt?: number; // set while the invoice is in the Recycle Bin
 }
 
 // Credit and debit notes share a shape; only the number and the direction differ
@@ -291,6 +292,7 @@ interface InvoiceRow {
   credited: number;
   debited: number;
   payment_references?: string | null;
+  deleted_at?: number | null;
 }
 
 const toInvoice = (r: InvoiceRow): Invoice => ({
@@ -310,6 +312,7 @@ const toInvoice = (r: InvoiceRow): Invoice => ({
   credited: r.credited,
   debited: r.debited,
   paymentReferences: r.payment_references ?? '',
+  deletedAt: r.deleted_at ?? undefined,
 });
 
 const INVOICE_SELECT = `SELECT i.*,
@@ -321,11 +324,21 @@ const INVOICE_SELECT = `SELECT i.*,
 
 export async function listInvoices(range?: { from: string; to: string }): Promise<Invoice[]> {
   const rows = await query<InvoiceRow>(
-    `${INVOICE_SELECT} ${range ? 'WHERE i.issue_date BETWEEN ? AND ?' : ''} ORDER BY i.financial_year DESC, i.seq DESC`,
+    `${INVOICE_SELECT} WHERE i.deleted_at IS NULL ${range ? 'AND i.issue_date BETWEEN ? AND ?' : ''} ORDER BY i.financial_year DESC, i.seq DESC`,
     range ? [range.from, range.to] : [],
   );
   return rows.map(toInvoice);
 }
+
+// Recycle Bin. Everything else (lists, reports, GSTR-1, dashboard) goes through listInvoices, which hides these.
+export async function listTrashedInvoices(): Promise<Invoice[]> {
+  const rows = await query<InvoiceRow>(`${INVOICE_SELECT} WHERE i.deleted_at IS NOT NULL ORDER BY i.deleted_at DESC`);
+  return rows.map(toInvoice);
+}
+
+// The row, its payments and its number stay; the number is never reused (next number is max(seq) + 1).
+export const trashInvoice = (id: string) => execute(`UPDATE local_invoices SET deleted_at = ? WHERE id = ?`, [Date.now(), id]);
+export const restoreInvoice = (id: string) => execute(`UPDATE local_invoices SET deleted_at = NULL WHERE id = ?`, [id]);
 
 // Turns a draft into an issued invoice with the next consecutive number of its financial year.
 // The invoice reuses the draft's id as primary key, so a retried or double-clicked issue fails instead of creating a second invoice.
@@ -472,6 +485,7 @@ export function listPayments(): Promise<Payment[]> {
     `SELECT p.id, p.invoice_id AS invoiceId, i.invoice_number AS invoiceNumber, i.customer_name AS customerName,
        p.amount, p.paid_on AS paidOn, p.method, coalesce(p.reference, '') AS reference
      FROM local_payments p JOIN local_invoices i ON i.id = p.invoice_id
+     WHERE i.deleted_at IS NULL
      ORDER BY p.paid_on DESC, p.created_at DESC`,
   );
 }
