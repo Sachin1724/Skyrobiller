@@ -272,44 +272,35 @@ export const SettingsView: React.FC = () => {
 
   return (
     <div className="page">
-      <div className="grid grid-cols-1 lg:grid-cols-[12rem_minmax(0,1fr)] gap-6 items-start">
-        {/* Sections */}
-        <nav aria-label="Settings sections" className="lg:sticky lg:top-20 space-y-4">
-          <div className="space-y-px">
+      <div className="grid grid-cols-1 gap-4 items-start">
+        {/* Sections as top tabs; the profile progress sits beside them */}
+        <nav aria-label="Settings sections" className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="segmented" role="group" aria-label="Settings sections">
             {SECTIONS.map(([id, name]) => (
-              <button
-                key={id}
-                onClick={() => setSection(id)}
-                aria-current={section === id ? 'page' : undefined}
-                className={`flex w-full items-center justify-between h-8 px-3 rounded text-sm ${section === id ? 'bg-ink/[0.06] font-semibold text-ink' : 'text-ink-2 hover:bg-ink/5 hover:text-ink'}`}
-              >
+              <button key={id} onClick={() => setSection(id)} aria-pressed={section === id}>
                 {name}
-                {id === 'backup' && backupStale && <AlertTriangle className="h-3.5 w-3.5 text-warn" aria-label="Backup needs attention" />}
+                {id === 'backup' && backupStale && <AlertTriangle className="ml-1.5 inline h-3.5 w-3.5 text-warn" aria-label="Backup needs attention" />}
               </button>
             ))}
           </div>
-          <div className="px-3" title="Share of the saved company profile that is filled in">
+          <div className="w-56" title="Share of the saved company profile that is filled in">
             <div className="flex justify-between text-xs text-ink-2"><span>Profile</span><span className="tabular-nums">{profilePct}% complete</span></div>
             <div className="mt-1 h-1.5 rounded-full bg-ink/10" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={profilePct}>
               <div className={`h-full rounded-full ${profilePct === 100 ? 'bg-success' : 'bg-accent'}`} style={{ width: `${profilePct}%` }} />
             </div>
-            {/* Say exactly what is missing, and take you to it */}
-            {missing.length > 0 && (
-              <div className="mt-3">
-                <div className="text-xs font-semibold text-ink-2">To finish your profile</div>
-                <ul className="mt-1 space-y-px">
-                  {missing.map((m) => (
-                    <li key={m.id}>
-                      <button onClick={() => setSection((m.go.section ?? 'company') as SectionId)} title={m.hint} className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs text-ink-2 hover:bg-ink/5 hover:text-ink">
-                        <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
-                        <span className="truncate">{m.label}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
+          {/* Say exactly what is missing, and take you to it */}
+          {missing.length > 0 && (
+            <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-ink-2">
+              <span className="font-semibold">To finish your profile:</span>
+              {missing.map((m) => (
+                <button key={m.id} onClick={() => setSection((m.go.section ?? 'company') as SectionId)} title={m.hint} className="chip">
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
         </nav>
 
         <div className="min-w-0 space-y-4">
