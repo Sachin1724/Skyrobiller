@@ -213,13 +213,19 @@
 
   /* Segmented control */
   .segmented {
-    @apply inline-flex p-0.5 rounded bg-ink/5;
+    @apply relative inline-flex p-0.5 rounded bg-ink/5;
   }
   .segmented button {
-    @apply h-7 px-3 rounded-sm text-xs font-medium text-ink-2;
+    @apply relative z-[1] h-7 px-3 rounded-sm text-xs font-medium text-ink-2;
+    transition: color 150ms ease-out;
   }
   .segmented button[aria-pressed='true'] {
-    @apply bg-surface text-ink shadow-sm;
+    @apply text-ink;
+  }
+  /* The sliding highlight (moved by lib/segmented.ts); the pressed button has no background of its own */
+  .seg-pill {
+    @apply absolute left-0 z-0 rounded-sm bg-surface shadow-sm pointer-events-none;
+    opacity: 0;
   }
 
   .empty {
