@@ -37,6 +37,9 @@ const electronAPI = {
   logError: (where: string, message: string) => ipcRenderer.invoke('log:error', where, message),
   exportLogs: (): Promise<{ success: boolean; filePath?: string; error?: string }> => ipcRenderer.invoke('log:export'),
 
+  storeFetch: (options: { baseUrl: string; apiKey: string; path: string }): Promise<{ success: boolean; data?: any; error?: string }> =>
+    ipcRenderer.invoke('store:fetch', options),
+
   // PDF Generation and printing
   generatePdf: (options: { htmlContent: string; title: string }) =>
     ipcRenderer.invoke('pdf:generate', options),

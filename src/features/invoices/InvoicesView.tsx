@@ -19,9 +19,10 @@ import { InvoiceEditor } from './InvoiceEditor';
 import { CreditNoteModal } from './CreditNoteModal';
 import { DebitNoteModal } from './DebitNoteModal';
 import { CorrectInvoiceModal } from './CorrectInvoiceModal';
+import { fetchStoreOrders, orderDocument, storeInvoiceNumber, paymentIdOf, type StoreOrder } from '../../lib/skyrostore';
 import { PaymentModal } from '../payments/PaymentModal';
 
-type Tab = 'issued' | 'drafts' | 'parked' | 'credits' | 'debits';
+type Tab = 'issued' | 'drafts' | 'parked' | 'credits' | 'debits' | 'online';
 
 // Quick filters on the issued list; each one is a plain rule on the invoice
 const FILTERS = {
@@ -50,6 +51,8 @@ export const InvoicesView: React.FC = () => {
   const [correcting, setCorrecting] = useState<Invoice | null>(null);
   const [preview, setPreview] = useState<{ doc: PrintableDocument; html: string; invoice?: Invoice } | null>(null);
   const [error, setError] = useState('');
+  const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const isEditorOpen = activeInvoiceDraftId !== null;
 
@@ -59,6 +62,14 @@ export const InvoicesView: React.FC = () => {
       .catch((e) => setError(friendlyError(e)));
   // Refresh when the editor closes and when the parked list closes (it can delete drafts)
   useEffect(() => { if (!isEditorOpen) reload(); }, [isEditorOpen]);
+
+  // Online tab: the store does the matching (order no., email, name); debounced while typing
+  useEffect(() => {
+    if (tab !== 'online') return;
+    setOrdersLoading(true);
+    const t = setTimeout(() => fetchStoreOrders(searchTerm).then((o) => { setOrders(o); setError(''); }).catch((e) => setError(friendlyError(e))).finally(() => setOrdersLoading(false)), 300);
+    return () => clearTimeout(t);
+  }, [tab, searchTerm]);
 
   // Opened from the dashboard or the Parked command: jump to the requested tab and filter
   useEffect(() => {
@@ -172,6 +183,7 @@ export const InvoicesView: React.FC = () => {
           <button aria-pressed={tab === 'parked'} onClick={() => setTab('parked')}>Parked ({drafts.filter((d) => d.isParked).length})</button>
           <button aria-pressed={tab === 'credits'} onClick={() => setTab('credits')}>Credit Notes ({credits.length})</button>
           <button aria-pressed={tab === 'debits'} onClick={() => setTab('debits')}>Debit Notes ({debits.length})</button>
+          <button aria-pressed={tab === 'online'} onClick={() => setTab('online')}>Online Store</button>
         </div>
         <div className="relative w-80">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-ink-3 pointer-events-none" aria-hidden />
@@ -180,7 +192,7 @@ export const InvoicesView: React.FC = () => {
             aria-label="Search invoices"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Search invoice #, transaction ID, customer or GSTIN…"
+            placeholder={tab === 'online' ? 'Search order #, customer or email…' : 'Search invoice #, transaction ID, customer or GSTIN…'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="field pl-8"
@@ -396,6 +408,47 @@ export const InvoicesView: React.FC = () => {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        )}
+
+        {tab === 'online' && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Invoice No.</th><th>Order</th><th>Date</th><th>Customer</th><th>Payment</th><th>Delivery</th>
+                <th className="num">Total</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordersLoading && orders.length === 0 && <SkeletonRows columns={8} />}
+              {!ordersLoading && orders.length === 0 && <tr><td colSpan={8} className="empty">{error ? 'Could not load online orders.' : 'No online orders found.'}</td></tr>}
+              {orders.map((o) => {
+                const doc = orderDocument(o, company);
+                const payId = paymentIdOf(o);
+                return (
+                  <tr key={o.id}>
+                    <td className="font-medium tabular-nums whitespace-nowrap">{storeInvoiceNumber(o)}</td>
+                    <td className="tabular-nums">#{o.display_id}</td>
+                    <td className="whitespace-nowrap">{formatDate(o.created_at)}</td>
+                    <td className="max-w-xs">
+                      <div className="truncate">{doc.customer.businessName}</div>
+                      <div className="text-xs text-ink-2 truncate">{doc.customer.gstin || doc.customer.email}</div>
+                    </td>
+                    <td>
+                      <span className="badge">{o.payment_status ?? '-'}</span>
+                      {payId && <div className="text-xs text-ink-2 truncate">{payId}</div>}
+                    </td>
+                    <td><span className="badge">{o.fulfillment_status ?? '-'}</span></td>
+                    <td className="num">{formatCurrencyINR(doc.totals.total)}</td>
+                    <td className="num">
+                      <button onClick={() => openPreview(doc)} className="btn btn-icon" aria-label={`View ${doc.number}`} title="View"><Eye className="h-4 w-4" aria-hidden /></button>
+                      <button onClick={() => savePdf(doc, company).catch(fail)} className="btn btn-icon" aria-label={`Save PDF of ${doc.number}`} title="Save PDF"><FileDown className="h-4 w-4" aria-hidden /></button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

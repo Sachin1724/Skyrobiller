@@ -60,6 +60,8 @@ export interface ElectronAPI {
   logError: (where: string, message: string) => Promise<void>;
   exportLogs: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
 
+  storeFetch: (options: { baseUrl: string; apiKey: string; path: string }) => Promise<{ success: boolean; data?: any; error?: string }>;
+
   // PDF Printing & Export
   generatePdf: (options: { htmlContent: string; title: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
   printHtml: (options: { htmlContent: string }) => Promise<{ success: boolean; error?: string }>;

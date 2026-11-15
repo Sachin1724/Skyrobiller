@@ -14,14 +14,15 @@ import { getSetting } from '../../lib/db';
 import { compressImage } from '../../lib/image';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { NumInput } from '../../components/NumInput';
+import { StoreSection } from './StoreSection';
 import type { BackupSettings } from '../../types/electron';
 
 const START_SCREENS: [AppModule, string][] = [['dashboard', 'Dashboard'], ['invoices', 'Invoices'], ['quotations', 'Quotations'], ['payments', 'Payments'], ['reports', 'Reports']];
 const DASHBOARD_CARDS: [string, string][] = [['month', 'Sales This Month'], ['year', 'Sales This Financial Year'], ['outstanding', 'Outstanding'], ['due', 'Due This Week']];
 const THEMES: [Prefs['theme'], string][] = [['light', 'Light'], ['dark', 'Dark'], ['system', 'Follow Windows']];
 
-type SectionId = 'company' | 'bank' | 'design' | 'numbering' | 'preferences' | 'backup';
-const SECTIONS: [SectionId, string][] = [['company', 'Company'], ['bank', 'Bank & Payment'], ['design', 'Invoice Design'], ['numbering', 'Numbering'], ['backup', 'Backup'], ['preferences', 'Preferences']];
+type SectionId = 'company' | 'bank' | 'design' | 'numbering' | 'preferences' | 'backup' | 'store';
+const SECTIONS: [SectionId, string][] = [['company', 'Company'], ['bank', 'Bank & Payment'], ['design', 'Invoice Design'], ['numbering', 'Numbering'], ['backup', 'Backup'], ['store', 'Online Store'], ['preferences', 'Preferences']];
 const FORM_SECTIONS: SectionId[] = ['company', 'bank', 'design', 'numbering']; // saved together with the Save bar; the others apply at once
 
 const SAMPLE_ITEMS: InvoiceLine[] = [
@@ -440,6 +441,8 @@ export const SettingsView: React.FC = () => {
               </div>
             </form>
           </FormContext.Provider>
+
+          <StoreSection hidden={section !== 'store'} />
 
           {/* App preferences: applied and saved the moment they change */}
           <section data-section="preferences" hidden={section !== 'preferences'} className="card p-4 space-y-4 max-w-3xl">

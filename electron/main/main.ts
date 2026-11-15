@@ -189,6 +189,19 @@ ipcMain.handle('backup:chooseFolder', async () => {
   return runAutoBackup();
 });
 
+// Skyrostore (Medusa) admin API. Called from here so the renderer CSP stays closed.
+ipcMain.handle('store:fetch', async (_event, { baseUrl, apiKey, path: apiPath }: { baseUrl: string; apiKey: string; path: string }) => {
+  try {
+    const url = new URL(apiPath, baseUrl.replace(/\/?$/, '/'));
+    if (!/^https?:$/.test(url.protocol) || !apiPath.startsWith('/admin/')) throw new Error('Bad store URL');
+    const res = await fetch(url, { headers: { Authorization: `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}` }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(res.status === 401 ? 'Store rejected the API key' : `Store replied ${res.status}`);
+    return { success: true, data: await res.json() };
+  } catch (e: any) {
+    return { success: false, error: e?.cause?.code === 'ECONNREFUSED' ? 'Cannot reach the store. Is the backend running?' : String(e?.message ?? e) };
+  }
+});
+
 ipcMain.handle('log:error', (_event, where: string, message: string) => logError(`renderer ${where}`, message));
 ipcMain.handle('log:export', async () => {
   const { filePath } = await dialog.showSaveDialog({
