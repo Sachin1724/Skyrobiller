@@ -220,11 +220,11 @@
     transition: color 150ms ease-out;
   }
   .segmented button[aria-pressed='true'] {
-    @apply text-ink;
+    @apply text-accent font-semibold;
   }
   /* The sliding highlight (moved by lib/segmented.ts); the pressed button has no background of its own */
   .seg-pill {
-    @apply absolute left-0 z-0 rounded-sm bg-surface shadow-sm pointer-events-none;
+    @apply absolute left-0 z-0 rounded bg-accent/20 border border-accent/70 pointer-events-none;
     opacity: 0;
   }
 

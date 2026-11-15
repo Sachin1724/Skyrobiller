@@ -28,6 +28,8 @@ let win: BrowserWindow | null = null;
 
 const preload = path.join(__dirname, 'preload.cjs');
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+// Some Windows graphics drivers repaint hovered regions in wrong colours with GPU drawing; a billing UI needs no GPU
+app.disableHardwareAcceleration();
 const iconPath = path.join(process.env.APP_ROOT, 'resources', 'icon.png'); // dev only; the installed app takes its icon from the exe
 
 // Window size and position are remembered between runs
