@@ -1,14 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '../../store/useToastStore';
 import { friendlyError } from '../../lib/friendlyError';
-import { ArrowLeft, PauseCircle, Trash2, CheckCircle2, FileDown, Plus, AlertTriangle, Printer } from 'lucide-react';
+import { ArrowLeft, Eye, PauseCircle, Trash2, CheckCircle2, FileDown, Plus, AlertTriangle, Printer } from 'lucide-react';
 import { SearchBox } from '../../components/SearchBox';
 import { NumInput } from '../../components/NumInput';
 import { confirmDialog } from '../../components/ConfirmDialog';
 import { computeInvoice, type InvoiceLine } from '../../lib/gst';
 import {
-  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, listInvoices, outstandingOf, nextInvoiceNumber,
-  type Customer, type Product, type DraftKind, type QuotationStatus, type Invoice,
+  searchCustomers, searchProducts, getDraft, saveDraft, saveProduct, newDraftId, updateProductPrice, issueInvoice, listInvoices, outstandingOf, nextInvoiceNumber, addPayment, NO_PAYMENT,
+  type Customer, type Product, type DraftKind, type QuotationStatus, type Invoice, type DraftPayment, type Payment,
 } from '../../lib/db';
 import { savePdf, printDocument, invoiceDocument, type PrintableDocument } from '../../lib/pdf';
 import { useMenuAction, setFlushOpenWork } from '../../store/useNavStore';
@@ -16,6 +16,8 @@ import { formatCurrencyINR, formatDate, todayISO, addDaysISO } from '../../lib/u
 import { useSystemStore } from '../../store/useSystemStore';
 import { useNavStore } from '../../store/useNavStore';
 import { checkInvoice, type Issue } from '../../lib/checks';
+import { PaymentFields, referenceOf, missingRef } from '../payments/PaymentFields';
+import { InvoicePreviewPane, PreviewModal, useDocumentHtml } from './InvoicePreviewPane';
 
 const AUTOSAVE_MS = 600;
 const num = (v: string, max = Infinity) => Math.min(max, Math.max(0, Number(v) || 0));
@@ -43,6 +45,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const [notes, setNotes] = useState('');
   const [validUntil, setValidUntil] = useState(kind === 'quotation' ? addDaysISO(todayISO(), 15) : '');
   const [status, setStatus] = useState<QuotationStatus>('draft');
+  const [payment, setPayment] = useState<DraftPayment>(NO_PAYMENT);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -50,9 +53,32 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
 
   const totals = computeInvoice(items, company.stateCode, customer?.stateCode ?? company.stateCode);
 
+  // What counts as received: Paid is always the whole total, Partial is the typed amount (never more than the total)
+  const received = kind !== 'invoice' ? 0 : payment.status === 'paid' ? totals.total : payment.status === 'partial' ? Math.min(Math.max(0, payment.amount), totals.total) : 0;
+  const paidOn = payment.paidOn || todayISO();
+  const reference = referenceOf(payment);
+
+  // Live preview: the document as it would print right now. Needs a customer to have anything to show.
+  const layout = useSystemStore((s) => s.prefs.editorLayout);
+  const [expanded, setExpanded] = useState(false);
+  const previewDoc = useMemo<PrintableDocument | null>(() => customer && ({
+    title: kind === 'invoice' ? 'Tax Invoice' : 'Quotation',
+    number: kind === 'invoice' ? 'DRAFT' : draftId,
+    date: todayISO(),
+    secondDateLabel: kind === 'invoice' ? 'Due Date' : 'Valid Until',
+    secondDate: kind === 'invoice' ? addDaysISO(todayISO(), customer.paymentTermsDays) : validUntil,
+    company, customer, items, totals, notes,
+    ...(received > 0 && {
+      paid: received,
+      balanceDue: Math.round((totals.total - received) * 100) / 100,
+      payments: [{ id: 'new', invoiceId: draftId, invoiceNumber: 'DRAFT', customerName: customer.businessName, amount: received, paidOn, method: payment.method, reference } as Payment],
+    }),
+  }), [kind, draftId, customer, items, totals, notes, validUntil, company, received, paidOn, payment.method, reference]);
+  const previewHtml = useDocumentHtml(layout === 'split' || expanded ? previewDoc : null, company);
+
   // Latest values for saves that run outside render (debounce timer, unmount flush)
-  const latest = useRef({ customer, items, notes, validUntil, status, total: totals.total });
-  latest.current = { customer, items, notes, validUntil, status, total: totals.total };
+  const latest = useRef({ customer, items, notes, validUntil, status, payment, total: totals.total });
+  latest.current = { customer, items, notes, validUntil, status, payment, total: totals.total };
   const timer = useRef<number | undefined>(undefined);
   const closed = useRef(false); // set once the draft is issued or saved, so no late autosave can recreate it
 
@@ -69,7 +95,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   useEffect(() => {
     getDraft(draftId).then((d) => {
       if (d) {
-        setCustomer(d.customer); setItems(d.items); setNotes(d.notes); setStatus(d.status);
+        setCustomer(d.customer); setItems(d.items); setNotes(d.notes); setStatus(d.status); setPayment(d.payment);
         if (d.validUntil) setValidUntil(d.validUntil);
       }
       setLoaded(true);
@@ -81,7 +107,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
     if (!loaded) return;
     timer.current = window.setTimeout(() => persist(false), AUTOSAVE_MS);
     return () => window.clearTimeout(timer.current);
-  }, [customer, items, notes, validUntil, loaded]);
+  }, [customer, items, notes, validUntil, payment, loaded]);
 
   // Dues for the chosen customer, refreshed when the customer changes
   useEffect(() => {
@@ -196,6 +222,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
   const handleIssue = async (print: boolean) => {
     const cust = validate();
     if (!cust || busy) return;
+    if (payment.status === 'partial' && received <= 0) { setError('Enter the amount received, or set the payment to Unpaid.'); return; }
     const issueDate = todayISO();
     const nextNumber = await nextInvoiceNumber(company.invoicePrefix, issueDate).catch(() => '');
     if (!(await confirmDialog({
@@ -206,6 +233,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
         ['Invoice number', nextNumber || 'Next in sequence'],
         ['Items', String(items.length)],
         ['Due', formatDate(addDaysISO(issueDate, cust.paymentTermsDays))],
+        ...(received > 0 ? [['Payment', `${formatCurrencyINR(received)} via ${payment.method}${reference ? ` (${reference})` : ''}`] as [string, string]] : []),
         ...(dues && dues.outstanding >= 0.01 ? [['Already owed', `${formatCurrencyINR(dues.outstanding)}${dues.overdue ? ` (${dues.overdue} overdue)` : ''}`] as [string, string]] : []),
       ],
       message: `${allIssues.filter((i) => i.level === 'warning').map((i) => `• ${i.message}`).join('\n')}${allIssues.some((i) => i.level === 'warning') ? '\n\n' : ''}Once issued it cannot be edited. Corrections are made with credit or debit notes.`,
@@ -221,6 +249,10 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
         issueDate, dueDate: addDaysISO(issueDate, cust.paymentTermsDays),
       });
       closed.current = true;
+      if (received > 0) {
+        await addPayment({ invoiceId: invoice.id, amount: received, paidOn, method: payment.method, reference })
+          .catch((e) => toast.error(`Issued as ${invoice.invoiceNumber}, but the payment was not recorded. ${friendlyError(e)} Record it from Payments.`));
+      }
       if (print) await printDocument(invoiceDocument(invoice), company).catch((e) => toast.error(`Issued as ${invoice.invoiceNumber}, but printing failed. ${friendlyError(e)} Print it from the Issued list.`));
       onClose(invoice.invoiceNumber);
     } catch (e: any) {
@@ -298,6 +330,16 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <div className="segmented" role="group" aria-label="Editor layout">
+            <button aria-pressed={layout === 'split'} onClick={() => useSystemStore.getState().updatePrefs({ editorLayout: 'split' })}>Split</button>
+            <button aria-pressed={layout === 'form'} onClick={() => useSystemStore.getState().updatePrefs({ editorLayout: 'form' })}>Form</button>
+          </div>
+          {layout === 'form' && (
+            <button onClick={() => setExpanded(true)} disabled={!customer} className="btn" title={customer ? 'Preview the document' : 'Pick a customer first'}>
+              <Eye className="h-4 w-4" aria-hidden />
+              Preview
+            </button>
+          )}
           {kind === 'invoice' ? (
             <>
               <button onClick={() => close(true)} className="btn" title="Park (F9)">
@@ -344,6 +386,8 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
         </section>
       )}
 
+      <div className={layout === 'split' ? 'grid grid-cols-[minmax(0,1fr)_clamp(340px,34vw,460px)] gap-4 items-start' : ''}>
+      <div className="space-y-4 min-w-0">
       {/* Customer */}
       <section className="card p-4 space-y-2" aria-label="Customer" data-field="customer">
         {customer ? (
@@ -415,6 +459,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
           </button>
         </div>
 
+        <div className="overflow-x-auto">
         <table className="tbl">
           <thead>
             <tr>
@@ -490,6 +535,7 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       {/* Notes + totals */}
@@ -514,6 +560,53 @@ export const InvoiceEditor: React.FC<Props> = ({ draftId, kind, onClose }) => {
           </div>
         </dl>
       </div>
+
+      {kind === 'invoice' && (
+        <section className="card p-4 space-y-3" aria-label="Payment received" data-field="payment">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold tracking-tight">Payment received</h3>
+            <div className="segmented" role="group" aria-label="Payment status">
+              {(['unpaid', 'partial', 'paid'] as const).map((s) => (
+                <button key={s} aria-pressed={payment.status === s} onClick={() => setPayment({ ...payment, status: s, paidOn: payment.paidOn || todayISO() })}>
+                  {{ unpaid: 'Unpaid', partial: 'Partially paid', paid: 'Paid in full' }[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+          {payment.status === 'unpaid' ? (
+            <p className="text-xs text-ink-2">Nothing received yet. Receive money later from Payments, or choose a status above to record it now.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="label">Amount Received (₹)
+                  {payment.status === 'paid'
+                    ? <input readOnly value={totals.total.toFixed(2)} className="field num" />
+                    : <NumInput aria-label="Amount received" step="0.01" max={totals.total} value={payment.amount} onChange={(n) => setPayment({ ...payment, amount: n })} className="field num" />}
+                </label>
+                <label className="label">Payment Date
+                  <input type="date" max={todayISO()} value={paidOn} onChange={(e) => setPayment({ ...payment, paidOn: e.target.value })} className="field" />
+                </label>
+              </div>
+              <PaymentFields value={payment} onChange={(v) => setPayment({ ...payment, ...v })} />
+              {missingRef(payment) && <p className="text-xs text-warn">No transaction ID entered. You can still issue, but it will be hard to match this payment later.</p>}
+              <div className="flex items-center justify-between rounded border border-line bg-surface-2 px-3 py-2 text-xs" aria-live="polite">
+                <span className="text-ink-2">Status after issuing</span>
+                {received >= totals.total - 0.005
+                  ? <span className="badge badge-success">Paid in Full</span>
+                  : <span className="badge badge-warn">Partially Paid ({formatCurrencyINR(totals.total - received)} remaining)</span>}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+      </div>
+      {layout === 'split' && (
+        <InvoicePreviewPane html={previewHtml} emptyText="Pick a customer and the document appears here as you fill it in." onExpand={() => setExpanded(true)} />
+      )}
+      </div>
+      {expanded && previewDoc && previewHtml && (
+        <PreviewModal doc={previewDoc} html={previewHtml} company={company} onClose={() => setExpanded(false)} onError={(e) => setError(friendlyError(e))} />
+      )}
     </div>
   );
 };

@@ -34,6 +34,10 @@ export type DraftKind = 'invoice' | 'quotation';
 export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'converted';
 
 // An invoice draft, a parked invoice, or a quotation: all are editable documents without a GST number.
+// Money received while the invoice is still being made; recorded as a payment when it is issued
+export interface DraftPayment { status: 'unpaid' | 'partial' | 'paid'; amount: number; paidOn: string; method: string; payer: string; ref: string }
+export const NO_PAYMENT: DraftPayment = { status: 'unpaid', amount: 0, paidOn: '', method: 'UPI', payer: '', ref: '' };
+
 export interface Draft {
   draftId: string;
   kind: DraftKind;
@@ -41,6 +45,7 @@ export interface Draft {
   customer: Customer | null;
   items: InvoiceLine[];
   total: number;
+  payment: DraftPayment; // kept in totals_json, so no column of its own
   notes: string;
   validUntil: string; // quotations only, YYYY-MM-DD
   status: QuotationStatus; // quotations only
@@ -230,6 +235,7 @@ const toDraft = (r: DraftRow): Draft => ({
   customer: r.customer_json ? JSON.parse(r.customer_json) : null,
   items: JSON.parse(r.items_json),
   total: JSON.parse(r.totals_json).total ?? 0,
+  payment: { ...NO_PAYMENT, ...JSON.parse(r.totals_json).payment },
   notes: r.notes ?? '',
   validUntil: r.valid_until ?? '',
   status: r.status,
@@ -252,7 +258,7 @@ export async function getDraft(draftId: string): Promise<Draft | null> {
   return rows[0] ? toDraft(rows[0]) : null;
 }
 
-export function saveDraft(d: Omit<Draft, 'updatedAt'>): Promise<void> {
+export function saveDraft(d: Omit<Draft, 'updatedAt' | 'payment'> & { payment?: DraftPayment }): Promise<void> {
   const now = Date.now();
   return execute(
     `INSERT INTO local_drafts (draft_id, kind, is_parked, customer_json, items_json, totals_json, notes, valid_until, status, created_at, updated_at)
@@ -261,7 +267,7 @@ export function saveDraft(d: Omit<Draft, 'updatedAt'>): Promise<void> {
        items_json=excluded.items_json, totals_json=excluded.totals_json, notes=excluded.notes,
        valid_until=excluded.valid_until, status=excluded.status, updated_at=excluded.updated_at`,
     [d.draftId, d.kind, d.isParked ? 1 : 0, d.customer ? JSON.stringify(d.customer) : null, JSON.stringify(d.items),
-      JSON.stringify({ total: d.total }), d.notes, d.validUntil || null, d.status, now, now],
+      JSON.stringify({ total: d.total, payment: d.payment ?? NO_PAYMENT }), d.notes, d.validUntil || null, d.status, now, now],
   );
 }
 

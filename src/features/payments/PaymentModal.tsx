@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { friendlyError } from '../../lib/friendlyError';
 import { Modal } from '../../components/Modal';
+import { PaymentFields, referenceOf, type PaymentDetail } from './PaymentFields';
 import { addPayment, listPaymentsForInvoice, outstandingOf, type Invoice, type Payment } from '../../lib/db';
 import { formatCurrencyINR, formatDate, todayISO } from '../../lib/utils';
 
-const METHODS = ['UPI', 'NEFT / RTGS', 'Cash', 'Cheque', 'Card'];
 
 export const PaymentModal: React.FC<{ invoice: Invoice; onClose: (saved: boolean) => void }> = ({ invoice, onClose }) => {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const due = outstandingOf(invoice);
   const [amount, setAmount] = useState<string>(due > 0 ? due.toFixed(2) : '0');
+  const [detail, setDetail] = useState<PaymentDetail>({ method: 'UPI', payer: '', ref: '' });
   const [history, setHistory] = useState<Payment[]>([]);
 
   useEffect(() => {
@@ -39,8 +40,8 @@ export const PaymentModal: React.FC<{ invoice: Invoice; onClose: (saved: boolean
         invoiceId: invoice.id,
         amount: payAmount,
         paidOn: f.paidOn,
-        method: f.method,
-        reference: f.reference.trim(),
+        method: detail.method,
+        reference: referenceOf(detail),
       });
       onClose(true);
     } catch (err: any) {
@@ -113,15 +114,8 @@ export const PaymentModal: React.FC<{ invoice: Invoice; onClose: (saved: boolean
           <label className="label">Payment Date
             <input name="paidOn" type="date" required max={todayISO()} defaultValue={todayISO()} className="field" />
           </label>
-          <label className="label">Method
-            <select name="method" className="field">
-              {METHODS.map((m) => <option key={m}>{m}</option>)}
-            </select>
-          </label>
-          <label className="label">Transaction Reference
-            <input name="reference" spellCheck={false} placeholder="UTR or cheque number" className="field" />
-          </label>
         </div>
+        <PaymentFields value={detail} onChange={setDetail} />
 
         {/* Live status after payment */}
         <div className="flex items-center justify-between text-xs px-3 py-2 rounded bg-surface-2 border border-line">

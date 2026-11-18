@@ -36,6 +36,7 @@ export interface Prefs {
   defaultGstRate: number; // pre-selected for new products and custom items
   defaultTermsDays: number; // pre-filled for new customers
   hiddenCards: string[]; // dashboard cards switched off
+  editorLayout: 'split' | 'form'; // invoice editor: form beside a live preview, or the form alone
 }
 
 interface SystemState {
@@ -80,7 +81,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     logo: '',
     copies: ['Original for Recipient'],
   },
-  prefs: { theme: 'system', accent: '', density: 'comfortable', startScreen: 'dashboard', defaultGstRate: 18, defaultTermsDays: 15, hiddenCards: [] },
+  prefs: { theme: 'system', accent: '', density: 'comfortable', startScreen: 'dashboard', defaultGstRate: 18, defaultTermsDays: 15, hiddenCards: [], editorLayout: 'split' },
   backup: null,
   setBackup: (backup) => set({ backup }),
   refreshBackup: async () => set({ backup: await window.electronAPI.backupStatus() }),
